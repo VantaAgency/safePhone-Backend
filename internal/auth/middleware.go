@@ -94,9 +94,22 @@ func (v *JWTVerifier) getPublicKey(ctx context.Context, kid string) (*ecdsa.Publ
 
 // Authenticate returns middleware that verifies ES256 JWTs and injects AuthContext.
 func (v *JWTVerifier) Authenticate(next http.Handler) http.Handler {
+	return v.authenticate(next, false)
+}
+
+// AuthenticateOptional verifies JWTs when present and otherwise proceeds unauthenticated.
+func (v *JWTVerifier) AuthenticateOptional(next http.Handler) http.Handler {
+	return v.authenticate(next, true)
+}
+
+func (v *JWTVerifier) authenticate(next http.Handler, optional bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
+			if optional {
+				next.ServeHTTP(w, r)
+				return
+			}
 			respond.Error(w, r, domain.Unauthorized("missing authorization header"))
 			return
 		}

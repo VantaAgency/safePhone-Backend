@@ -232,22 +232,45 @@ type AdminPayment struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
-// RepairBooking represents a repair appointment at a MobiTech center.
+const (
+	RepairStatusPending    = "pending"
+	RepairStatusAccepted   = "accepted"
+	RepairStatusRejected   = "rejected"
+	RepairStatusScheduled  = "scheduled"
+	RepairStatusInProgress = "in_progress"
+	RepairStatusCompleted  = "completed"
+	RepairStatusCancelled  = "cancelled"
+
+	RepairServiceModeCenter = "center"
+	RepairServiceModeHome   = "home"
+
+	RepairRequestSourcePublicVisitor = "public_visitor"
+	RepairRequestSourceSafePhoneUser = "safephone_user"
+)
+
+// RepairBooking represents a MobiTech repair request.
 type RepairBooking struct {
-	ID            uuid.UUID  `json:"id"`
-	OrgID         *uuid.UUID `json:"org_id,omitempty"`
-	UserID        *uuid.UUID `json:"user_id,omitempty"`
-	Reference     string     `json:"reference"`
-	DeviceType    string     `json:"device_type"`
-	RepairType    string     `json:"repair_type"`
-	LocationID    string     `json:"location_id"`
-	BookingDate   string     `json:"booking_date"`
-	BookingTime   string     `json:"booking_time"`
-	CustomerName  string     `json:"customer_name"`
-	CustomerPhone string     `json:"customer_phone"`
-	Status        string     `json:"status"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID                      uuid.UUID  `json:"id"`
+	OrgID                   *uuid.UUID `json:"-"`
+	UserID                  *uuid.UUID `json:"-"`
+	Reference               string     `json:"reference"`
+	DeviceBrand             string     `json:"device_brand"`
+	DeviceModel             string     `json:"device_model"`
+	RepairType              string     `json:"repair_type"`
+	ServiceMode             string     `json:"service_mode"`
+	CenterID                *string    `json:"center_id,omitempty"`
+	PreferredDate           string     `json:"preferred_date"`
+	PreferredTime           string     `json:"preferred_time"`
+	ScheduledDate           *string    `json:"scheduled_date,omitempty"`
+	ScheduledTime           *string    `json:"scheduled_time,omitempty"`
+	CustomerName            string     `json:"customer_name"`
+	CustomerPhone           string     `json:"customer_phone"`
+	CustomerPhoneNormalized string     `json:"-"`
+	Status                  string     `json:"status"`
+	RepairAmountXOF         *int       `json:"repair_amount_xof,omitempty"`
+	RequestSource           string     `json:"request_source"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 // PaymentMethod enumerates known provider-reported payment methods.

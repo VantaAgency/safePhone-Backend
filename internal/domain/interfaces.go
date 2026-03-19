@@ -110,4 +110,9 @@ type WebhookEventRepository interface {
 // RepairRepository defines data access for repair bookings.
 type RepairRepository interface {
 	Create(ctx context.Context, booking *RepairBooking) error
+	GetByID(ctx context.Context, id uuid.UUID) (*RepairBooking, error)
+	GetByReferenceAndPhone(ctx context.Context, reference, normalizedPhone string) (*RepairBooking, error)
+	ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]RepairBooking, error)
+	ListByOrg(ctx context.Context, orgID uuid.UUID, status *string, search string, limit, offset int) ([]RepairBooking, error)
+	Update(ctx context.Context, booking *RepairBooking) error
 }

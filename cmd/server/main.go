@@ -171,7 +171,8 @@ func main() {
 		r.Post("/contact", contactH.Submit)
 		r.Get("/partner-invitations/{token}", partnerH.GetInvitation)
 		r.Patch("/partner-clients/{id}/status", partnerH.UpdateClientStatus)
-		r.Post("/repairs", repairH.CreateBooking)
+		r.With(jwtVerifier.AuthenticateOptional).Post("/repairs", repairH.CreateBooking)
+		r.Post("/repairs/lookup", repairH.LookupBooking)
 
 		// Webhook endpoint (public, signature-verified internally)
 		r.Post("/webhooks/dexpay", webhookH.HandleDexpay)
@@ -203,6 +204,9 @@ func main() {
 			r.Get("/claims", claimH.List)
 			r.Get("/claims/{id}", claimH.Get)
 
+			// Repairs
+			r.Get("/repairs/mine", repairH.ListMine)
+
 			// Payments
 			r.Post("/payments", paymentH.Create)
 			r.Get("/payments", paymentH.List)
@@ -232,6 +236,12 @@ func main() {
 				r.Get("/payments", adminH.ListPayments)
 				r.Get("/claims", claimH.AdminList)
 				r.Put("/claims/{id}/status", claimH.AdminUpdateStatus)
+				r.Get("/repairs", repairH.AdminList)
+				r.Get("/repairs/{id}", repairH.AdminGet)
+				r.Post("/repairs/{id}/accept", repairH.AdminAccept)
+				r.Post("/repairs/{id}/reject", repairH.AdminReject)
+				r.Put("/repairs/{id}/status", repairH.AdminUpdateStatus)
+				r.Put("/repairs/{id}/amount", repairH.AdminUpdateAmount)
 				r.Get("/partners", partnerH.ListAllPartners)
 				r.Get("/partner-applications", partnerAppH.AdminList)
 				r.Put("/partner-applications/{id}/review", partnerAppH.AdminReview)
