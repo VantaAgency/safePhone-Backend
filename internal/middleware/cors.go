@@ -15,7 +15,7 @@ func CORSHandler(originsCSV string) *cors.Cors {
 
 	return cors.New(cors.Options{
 		AllowedOrigins:   origins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"},
 		ExposedHeaders:   []string{"X-Request-ID", "Retry-After"},
 		AllowCredentials: true,
