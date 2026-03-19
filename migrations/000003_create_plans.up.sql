@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(50) NOT NULL UNIQUE,
+    name_fr VARCHAR(100) NOT NULL,
+    name_en VARCHAR(100) NOT NULL,
+    price_monthly INTEGER NOT NULL,
+    price_annual INTEGER NOT NULL,
+    tier VARCHAR(30) NOT NULL,
+    device_range_fr VARCHAR(200),
+    device_range_en VARCHAR(200),
+    features_fr JSONB NOT NULL DEFAULT '[]',
+    features_en JSONB NOT NULL DEFAULT '[]',
+    not_covered_fr JSONB NOT NULL DEFAULT '[]',
+    not_covered_en JSONB NOT NULL DEFAULT '[]',
+    service_time VARCHAR(20) NOT NULL,
+    is_popular BOOLEAN NOT NULL DEFAULT false,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

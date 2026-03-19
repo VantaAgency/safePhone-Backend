@@ -1,0 +1,2 @@
+-- This migration is not reversible: org separation data was lost during consolidation.
+-- No-op down migration.
