@@ -100,7 +100,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 			if existing.OrgID != ac.OrgID || existing.UserID != ac.UserID {
 				return nil, domain.Conflict("idempotency key is already in use")
 			}
-			return s.buildCheckoutResult(ctx, existing)
+			return s.buildCheckoutResult(ctx, existing, true)
 		}
 	}
 
@@ -239,6 +239,19 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 	}, nil
 }
 
+// GetCheckout returns the tracked checkout state for a payment and its linked coverage.
+func (s *PaymentService) GetCheckout(ctx context.Context, ac *auth.AuthContext, id uuid.UUID) (*CheckoutResult, *domain.AppError) {
+	payment, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if payment == nil || payment.OrgID != ac.OrgID || payment.UserID != ac.UserID {
+		return nil, domain.NotFound("payment")
+	}
+
+	return s.buildCheckoutResult(ctx, payment, true)
+}
+
 // HandleWebhookEvent processes an incoming DEXPAY webhook event idempotently.
 func (s *PaymentService) HandleWebhookEvent(ctx context.Context, event dexpay.WebhookEvent, rawPayload []byte) *domain.AppError {
 	providerRef, extractErr := extractProviderRef(event)
@@ -297,7 +310,7 @@ func (s *PaymentService) List(ctx context.Context, ac *auth.AuthContext, limit, 
 		return nil, domain.InternalError(err)
 	}
 	for i := range payments {
-		if appErr := s.refreshPaymentState(ctx, &payments[i], false); appErr != nil {
+		if appErr := s.refreshPaymentState(ctx, &payments[i], true); appErr != nil {
 			return nil, appErr
 		}
 	}
@@ -310,7 +323,7 @@ func (s *PaymentService) Get(ctx context.Context, ac *auth.AuthContext, id uuid.
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if payment == nil || payment.OrgID != ac.OrgID {
+	if payment == nil || payment.OrgID != ac.OrgID || payment.UserID != ac.UserID {
 		return nil, domain.NotFound("payment")
 	}
 	if appErr := s.refreshPaymentState(ctx, payment, true); appErr != nil {
@@ -349,20 +362,20 @@ func (s *PaymentService) Resume(ctx context.Context, ac *auth.AuthContext, id uu
 		}
 		switch candidate.Status {
 		case domain.PaymentStatusCompleted, domain.PaymentStatusRefunded:
-			return s.buildCheckoutResult(ctx, candidate)
+			return s.buildCheckoutResult(ctx, candidate, true)
 		case domain.PaymentStatusPending:
 			if candidate.PaymentURL != nil && !paymentExpired(candidate) {
-				return s.buildCheckoutResult(ctx, candidate)
+				return s.buildCheckoutResult(ctx, candidate, true)
 			}
 		}
 	}
 
 	switch payment.Status {
 	case domain.PaymentStatusCompleted, domain.PaymentStatusRefunded:
-		return s.buildCheckoutResult(ctx, payment)
+		return s.buildCheckoutResult(ctx, payment, true)
 	case domain.PaymentStatusPending:
 		if payment.PaymentURL != nil && !paymentExpired(payment) {
-			return s.buildCheckoutResult(ctx, payment)
+			return s.buildCheckoutResult(ctx, payment, true)
 		}
 	}
 
@@ -443,11 +456,19 @@ func (s *PaymentService) buildCheckoutSessionRequest(
 		Amount:     payment.AmountXOF,
 		Currency:   payment.Currency,
 		CountryISO: dexpayCountrySN,
-		WebhookURL: s.backendPublicURL + "/api/v1/webhooks/dexpay",
+		WebhookURL: s.buildCheckoutWebhookURL(),
 		SuccessURL: buildFrontendCallbackURL(s.frontendURL, "/paiement/succes", payment),
 		FailureURL: buildFrontendCallbackURL(s.frontendURL, "/paiement/echec", payment),
 		Customer:   buildCheckoutCustomer(user),
 	}
+}
+
+func (s *PaymentService) buildCheckoutWebhookURL() string {
+	baseURL := s.backendPublicURL
+	if s.devMode || baseURL == "" {
+		baseURL = s.frontendURL
+	}
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/api/v1/webhooks/dexpay"
 }
 
 func buildCheckoutCustomer(user *domain.User) *dexpay.CheckoutSessionCustomer {
@@ -552,8 +573,23 @@ func (s *PaymentService) applyCheckoutSessionToPayment(ctx context.Context, paym
 	return s.repo.Update(ctx, payment)
 }
 
-func (s *PaymentService) buildCheckoutResult(ctx context.Context, payment *domain.Payment) (*CheckoutResult, *domain.AppError) {
-	result := &CheckoutResult{Payment: payment}
+func (s *PaymentService) buildCheckoutResult(ctx context.Context, payment *domain.Payment, syncWithProvider bool) (*CheckoutResult, *domain.AppError) {
+	if appErr := s.refreshPaymentState(ctx, payment, syncWithProvider); appErr != nil {
+		return nil, appErr
+	}
+
+	reloadedPayment, err := s.repo.GetByID(ctx, payment.ID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if reloadedPayment != nil {
+		payment = reloadedPayment
+	}
+
+	result := &CheckoutResult{
+		Payment:    payment,
+		PaymentURL: valueOrEmpty(payment.PaymentURL),
+	}
 
 	sub, err := s.subRepo.GetByID(ctx, payment.SubscriptionID)
 	if err != nil {
@@ -568,11 +604,6 @@ func (s *PaymentService) buildCheckoutResult(ctx context.Context, payment *domai
 		result.Device = device
 	}
 
-	if appErr := s.refreshPaymentState(ctx, payment, false); appErr != nil {
-		return nil, appErr
-	}
-
-	result.PaymentURL = valueOrEmpty(payment.PaymentURL)
 	return result, nil
 }
 
@@ -602,7 +633,7 @@ func (s *PaymentService) handleCheckoutCompleted(ctx context.Context, data json.
 		return appErr
 	}
 
-	if payment.Status != domain.PaymentStatusRefunded {
+	if payment.Status != domain.PaymentStatusCompleted && payment.Status != domain.PaymentStatusRefunded {
 		now := time.Now()
 		payment.Status = domain.PaymentStatusCompleted
 		payment.PaidAt = &now
@@ -728,12 +759,21 @@ func parseCheckoutWebhookData(data json.RawMessage) (*dexpay.CheckoutWebhookData
 
 func (s *PaymentService) activateCoverage(ctx context.Context, sub *domain.Subscription, device *domain.Device) *domain.AppError {
 	if sub != nil {
-		periodStart, periodEnd := subscriptionCoverageWindow(sub.BillingCycle, time.Now())
-		sub.Status = domain.SubscriptionStatusActive
-		sub.CurrentPeriodStart = &periodStart
-		sub.CurrentPeriodEnd = &periodEnd
-		if err := s.subRepo.Update(ctx, sub); err != nil {
-			return domain.InternalError(err)
+		needsUpdate := false
+		if sub.Status != domain.SubscriptionStatusActive {
+			sub.Status = domain.SubscriptionStatusActive
+			needsUpdate = true
+		}
+		if sub.CurrentPeriodStart == nil || sub.CurrentPeriodEnd == nil {
+			periodStart, periodEnd := subscriptionCoverageWindow(sub.BillingCycle, time.Now())
+			sub.CurrentPeriodStart = &periodStart
+			sub.CurrentPeriodEnd = &periodEnd
+			needsUpdate = true
+		}
+		if needsUpdate {
+			if err := s.subRepo.Update(ctx, sub); err != nil {
+				return domain.InternalError(err)
+			}
 		}
 	}
 
@@ -936,7 +976,7 @@ func applyCheckoutStatusToPayment(payment *domain.Payment, rawStatus string) {
 	case "", "pending", "created", "initiated", "processing":
 		return
 	case "completed", "paid", "successful", "success":
-		if payment.Status != domain.PaymentStatusRefunded {
+		if payment.Status != domain.PaymentStatusCompleted && payment.Status != domain.PaymentStatusRefunded {
 			payment.Status = domain.PaymentStatusCompleted
 			payment.PaidAt = &now
 			payment.FailedAt = nil

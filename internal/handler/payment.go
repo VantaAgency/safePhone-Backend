@@ -127,6 +127,29 @@ func (h *PaymentHandler) Get(w http.ResponseWriter, r *http.Request) {
 	WriteSuccess(w, r, http.StatusOK, payment)
 }
 
+// GetCheckout returns the canonical checkout state for a payment attempt.
+func (h *PaymentHandler) GetCheckout(w http.ResponseWriter, r *http.Request) {
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		WriteError(w, r, domain.BadRequest("invalid payment ID"))
+		return
+	}
+
+	result, appErr := h.svc.GetCheckout(r.Context(), ac, id)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusOK, result)
+}
+
 // Resume reuses or recreates a checkout session for an existing payment.
 func (h *PaymentHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	ac, err := auth.GetAuthContext(r.Context())

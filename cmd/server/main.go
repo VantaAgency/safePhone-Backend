@@ -211,6 +211,7 @@ func main() {
 			r.Post("/payments", paymentH.Create)
 			r.Get("/payments", paymentH.List)
 			r.Get("/payments/{id}", paymentH.Get)
+			r.Get("/payments/{id}/checkout", paymentH.GetCheckout)
 			r.Post("/payments/{id}/resume", paymentH.Resume)
 
 			// Partner routes
