@@ -271,3 +271,29 @@ func (h *PartnerHandler) ListAllPartners(w http.ResponseWriter, r *http.Request)
 
 	WriteSuccess(w, r, http.StatusOK, partners)
 }
+
+// ListAdminPartnerCommissions handles GET /api/v1/admin/partners/{id}/commissions.
+func (h *PartnerHandler) ListAdminPartnerCommissions(w http.ResponseWriter, r *http.Request) {
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+
+	partnerID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		WriteError(w, r, domain.BadRequest("invalid partner id"))
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	commissions, appErr := h.svc.ListAdminCommissions(r.Context(), ac, partnerID, limit, offset)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusOK, commissions)
+}

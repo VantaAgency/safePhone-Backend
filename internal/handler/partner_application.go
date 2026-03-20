@@ -15,16 +15,18 @@ import (
 
 // CreatePartnerApplicationRequest is the request body for a partner application.
 type CreatePartnerApplicationRequest struct {
-	StoreName string `json:"store_name" validate:"required,min=1,max=200"`
-	FullName  string `json:"full_name" validate:"required,min=1,max=200"`
-	Phone     string `json:"phone" validate:"required,min=1,max=30"`
-	City      string `json:"city" validate:"required,min=1,max=100"`
+	StoreName        string `json:"store_name" validate:"required,min=1,max=200"`
+	FullName         string `json:"full_name" validate:"required,min=1,max=200"`
+	Phone            string `json:"phone" validate:"required,min=1,max=30"`
+	City             string `json:"city" validate:"required,min=1,max=100"`
+	BusinessLocation string `json:"business_location" validate:"required,min=1,max=200"`
 }
 
 // ReviewPartnerApplicationRequest is the request body for admin review.
 type ReviewPartnerApplicationRequest struct {
-	Decision        string  `json:"decision" validate:"required,oneof=approved rejected"`
-	RejectionReason *string `json:"rejection_reason,omitempty"`
+	Decision             string   `json:"decision" validate:"required,oneof=approved rejected"`
+	RejectionReason      *string  `json:"rejection_reason,omitempty"`
+	CommissionPercentage *float64 `json:"commission_percentage,omitempty"`
 }
 
 // PartnerApplicationHandler handles partner application HTTP requests.
@@ -56,7 +58,7 @@ func (h *PartnerApplicationHandler) Submit(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	app, appErr := h.svc.Submit(r.Context(), ac, req.StoreName, req.FullName, req.Phone, req.City)
+	app, appErr := h.svc.Submit(r.Context(), ac, req.StoreName, req.FullName, req.Phone, req.City, req.BusinessLocation)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
@@ -142,7 +144,7 @@ func (h *PartnerApplicationHandler) AdminReview(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	app, appErr := h.svc.ReviewApplication(r.Context(), ac, appID, req.Decision, req.RejectionReason)
+	app, appErr := h.svc.ReviewApplication(r.Context(), ac, appID, req.Decision, req.RejectionReason, req.CommissionPercentage)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

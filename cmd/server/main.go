@@ -244,6 +244,7 @@ func main() {
 				r.Put("/repairs/{id}/status", repairH.AdminUpdateStatus)
 				r.Put("/repairs/{id}/amount", repairH.AdminUpdateAmount)
 				r.Get("/partners", partnerH.ListAllPartners)
+				r.Get("/partners/{id}/commissions", partnerH.ListAdminPartnerCommissions)
 				r.Get("/partner-applications", partnerAppH.AdminList)
 				r.Put("/partner-applications/{id}/review", partnerAppH.AdminReview)
 			})

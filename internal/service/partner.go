@@ -187,7 +187,7 @@ func (s *PartnerService) UpdateClientStatus(ctx context.Context, clientID uuid.U
 
 // SyncClientStatusByUser advances the latest invitation linked to this user.
 func (s *PartnerService) SyncClientStatusByUser(ctx context.Context, userID uuid.UUID, status string, planID *uuid.UUID) *domain.AppError {
-	if err := s.repo.UpdateLatestClientStatusByLinkedUser(ctx, userID, status, planID); err != nil {
+	if err := s.repo.UpdateClientStatusByLinkedUser(ctx, userID, status, planID); err != nil {
 		return domain.InternalError(err)
 	}
 	return nil
@@ -243,6 +243,26 @@ func (s *PartnerService) ListAll(ctx context.Context, ac *auth.AuthContext, limi
 		partners = []domain.AdminPartner{}
 	}
 	return partners, nil
+}
+
+// ListAdminCommissions returns commission line items for a specific partner in the admin dashboard.
+func (s *PartnerService) ListAdminCommissions(ctx context.Context, ac *auth.AuthContext, partnerID uuid.UUID, limit, offset int) ([]domain.AdminPartnerCommission, *domain.AppError) {
+	partner, err := s.repo.GetByID(ctx, partnerID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if partner == nil || partner.OrgID != ac.OrgID {
+		return nil, domain.NotFound("partner")
+	}
+
+	commissions, err := s.repo.ListAdminCommissions(ctx, partnerID, limit, offset)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if commissions == nil {
+		commissions = []domain.AdminPartnerCommission{}
+	}
+	return commissions, nil
 }
 
 func (s *PartnerService) decorateClientInvitation(client *domain.PartnerClient) {

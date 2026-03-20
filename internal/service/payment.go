@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -225,8 +226,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		if err := s.repo.Update(ctx, &payment); err != nil {
 			return nil, domain.InternalError(err)
 		}
-		s.syncPartnerClientStatus(ctx, ac.UserID, "payment_pending", &planID)
-		if appErr := s.activateCoverage(ctx, &sub, &device); appErr != nil {
+		if appErr := s.finalizeSuccessfulPayment(ctx, &payment, &sub, &device); appErr != nil {
 			return nil, appErr
 		}
 	}
@@ -649,10 +649,9 @@ func (s *PaymentService) handleCheckoutCompleted(ctx context.Context, data json.
 		}
 	}
 
-	if appErr := s.activateCoverage(ctx, sub, device); appErr != nil {
+	if appErr := s.finalizeSuccessfulPayment(ctx, payment, sub, device); appErr != nil {
 		return appErr
 	}
-	s.syncPartnerClientStatus(ctx, payment.UserID, "active", &payment.PlanID)
 
 	slog.Info("checkout completed via webhook", "payment_id", payment.ID, "reference", d.Reference)
 	return nil
@@ -859,15 +858,14 @@ func (s *PaymentService) refreshPaymentState(ctx context.Context, payment *domai
 		return domain.InternalError(err)
 	}
 
-	if payment.Status == domain.PaymentStatusCompleted && previousStatus != domain.PaymentStatusCompleted {
+	if isSuccessfulPaymentStatus(payment.Status) && payment.Status != previousStatus {
 		sub, device, appErr := s.loadCoverageEntitiesForPayment(ctx, payment)
 		if appErr != nil {
 			return appErr
 		}
-		if appErr := s.activateCoverage(ctx, sub, device); appErr != nil {
+		if appErr := s.finalizeSuccessfulPayment(ctx, payment, sub, device); appErr != nil {
 			return appErr
 		}
-		s.syncPartnerClientStatus(ctx, payment.UserID, "active", &payment.PlanID)
 	}
 
 	return nil
@@ -1073,7 +1071,86 @@ func (s *PaymentService) syncPartnerClientStatus(ctx context.Context, userID uui
 	if s.partnerRepo == nil {
 		return
 	}
-	if err := s.partnerRepo.UpdateLatestClientStatusByLinkedUser(ctx, userID, status, planID); err != nil {
+	if err := s.partnerRepo.UpdateClientStatusByLinkedUser(ctx, userID, status, planID); err != nil {
 		slog.Warn("failed to sync partner client status", "user_id", userID, "status", status, "error", err)
 	}
+}
+
+func (s *PaymentService) finalizeSuccessfulPayment(ctx context.Context, payment *domain.Payment, sub *domain.Subscription, device *domain.Device) *domain.AppError {
+	if payment == nil || !isSuccessfulPaymentStatus(payment.Status) {
+		return nil
+	}
+
+	if appErr := s.activateCoverage(ctx, sub, device); appErr != nil {
+		return appErr
+	}
+
+	s.syncPartnerClientStatus(ctx, payment.UserID, "active", &payment.PlanID)
+
+	if appErr := s.createPartnerCommissionForFirstSuccessfulPayment(ctx, payment); appErr != nil {
+		return appErr
+	}
+
+	return nil
+}
+
+func (s *PaymentService) createPartnerCommissionForFirstSuccessfulPayment(ctx context.Context, payment *domain.Payment) *domain.AppError {
+	if payment == nil || s.partnerRepo == nil || !isSuccessfulPaymentStatus(payment.Status) {
+		return nil
+	}
+
+	firstSuccessfulPayment, err := s.repo.GetFirstSuccessfulByUser(ctx, payment.OrgID, payment.UserID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if firstSuccessfulPayment == nil || firstSuccessfulPayment.ID != payment.ID {
+		return nil
+	}
+
+	attributedClient, err := s.partnerRepo.GetClientByLinkedUser(ctx, payment.OrgID, payment.UserID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if attributedClient == nil || attributedClient.PartnerID == uuid.Nil {
+		return nil
+	}
+
+	partner, err := s.partnerRepo.GetByID(ctx, attributedClient.PartnerID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if partner == nil || partner.OrgID != payment.OrgID || strings.TrimSpace(partner.Status) != "active" {
+		return nil
+	}
+
+	paymentID := payment.ID
+	planID := payment.PlanID
+	clientUserID := payment.UserID
+	partnerClientID := attributedClient.ID
+
+	commission := &domain.PartnerCommission{
+		OrgID:                payment.OrgID,
+		PartnerID:            partner.ID,
+		PartnerClientID:      &partnerClientID,
+		ClientUserID:         &clientUserID,
+		PaymentID:            &paymentID,
+		PlanID:               &planID,
+		BaseAmountXOF:        payment.AmountXOF,
+		CommissionPercentage: partner.CommissionPercentage,
+		CommissionAmountXOF:  calculateCommissionAmountXOF(payment.AmountXOF, partner.CommissionPercentage),
+		Status:               "pending",
+	}
+	if err := s.partnerRepo.CreateCommission(ctx, commission); err != nil {
+		return domain.InternalError(err)
+	}
+
+	return nil
+}
+
+func calculateCommissionAmountXOF(baseAmountXOF int, commissionPercentage float64) int {
+	return int(math.Round(float64(baseAmountXOF) * commissionPercentage / 100))
+}
+
+func isSuccessfulPaymentStatus(status domain.PaymentStatus) bool {
+	return status == domain.PaymentStatusCompleted || status == domain.PaymentStatusRefunded
 }

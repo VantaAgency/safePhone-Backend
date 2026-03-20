@@ -166,34 +166,38 @@ const (
 
 // PartnerApplication represents an application to become a SafePhone partner.
 type PartnerApplication struct {
-	ID              uuid.UUID  `json:"id"`
-	OrgID           uuid.UUID  `json:"org_id"`
-	UserID          uuid.UUID  `json:"user_id"`
-	StoreName       string     `json:"store_name"`
-	FullName        string     `json:"full_name"`
-	Phone           string     `json:"phone"`
-	City            string     `json:"city"`
-	Status          string     `json:"status"`
-	ReviewedBy      *uuid.UUID `json:"reviewed_by,omitempty"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
+	ID                   uuid.UUID  `json:"id"`
+	OrgID                uuid.UUID  `json:"org_id"`
+	UserID               uuid.UUID  `json:"user_id"`
+	StoreName            string     `json:"store_name"`
+	FullName             string     `json:"full_name"`
+	Phone                string     `json:"phone"`
+	City                 string     `json:"city"`
+	BusinessLocation     string     `json:"business_location"`
+	Status               string     `json:"status"`
+	CommissionPercentage *float64   `json:"commission_percentage,omitempty"`
+	ReviewedBy           *uuid.UUID `json:"reviewed_by,omitempty"`
+	RejectionReason      *string    `json:"rejection_reason,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	ReviewedAt           *time.Time `json:"reviewed_at,omitempty"`
 }
 
 // AdminPartnerApplication is a read-only view for admin review, including applicant email.
 type AdminPartnerApplication struct {
-	ID              string     `json:"id"`
-	OrgID           string     `json:"org_id"`
-	UserID          string     `json:"user_id"`
-	StoreName       string     `json:"store_name"`
-	FullName        string     `json:"full_name"`
-	Phone           string     `json:"phone"`
-	Email           string     `json:"email"`
-	City            string     `json:"city"`
-	Status          string     `json:"status"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
+	ID                   string     `json:"id"`
+	OrgID                string     `json:"org_id"`
+	UserID               string     `json:"user_id"`
+	StoreName            string     `json:"store_name"`
+	FullName             string     `json:"full_name"`
+	Phone                string     `json:"phone"`
+	Email                string     `json:"email"`
+	City                 string     `json:"city"`
+	BusinessLocation     string     `json:"business_location"`
+	Status               string     `json:"status"`
+	CommissionPercentage *float64   `json:"commission_percentage,omitempty"`
+	RejectionReason      *string    `json:"rejection_reason,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	ReviewedAt           *time.Time `json:"reviewed_at,omitempty"`
 }
 
 // AdminStats aggregates platform-level statistics for the admin dashboard.
@@ -320,34 +324,40 @@ type Payment struct {
 
 // Partner represents a registered partner store.
 type Partner struct {
-	ID             uuid.UUID `json:"id"`
-	OrgID          uuid.UUID `json:"org_id"`
-	UserID         uuid.UUID `json:"user_id"`
-	StoreName      string    `json:"store_name"`
-	City           string    `json:"city"`
-	CommissionRate float64   `json:"commission_rate"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                   uuid.UUID `json:"id"`
+	OrgID                uuid.UUID `json:"org_id"`
+	UserID               uuid.UUID `json:"user_id"`
+	StoreName            string    `json:"store_name"`
+	City                 string    `json:"city"`
+	BusinessLocation     string    `json:"business_location"`
+	CommissionPercentage float64   `json:"commission_percentage"`
+	Status               string    `json:"status"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // PartnerClient represents a client invited by a partner.
 type PartnerClient struct {
-	ID                  uuid.UUID  `json:"id"`
-	OrgID               uuid.UUID  `json:"org_id"`
-	PartnerID           uuid.UUID  `json:"partner_id"`
-	LinkedUserID        *uuid.UUID `json:"linked_user_id,omitempty"`
-	ClientName          string     `json:"client_name"`
-	ClientPhone         *string    `json:"client_phone,omitempty"`
-	PlanID              *uuid.UUID `json:"plan_id,omitempty"`
-	Status              string     `json:"status"`
-	InvitationToken     string     `json:"-"`
-	InvitationURL       string     `json:"invitation_url,omitempty"`
-	InvitationExpiresAt *time.Time `json:"invitation_expires_at,omitempty"`
-	InvitationClaimedAt *time.Time `json:"invitation_claimed_at,omitempty"`
-	InvitedAt           time.Time  `json:"invited_at"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	ID                     uuid.UUID  `json:"id"`
+	OrgID                  uuid.UUID  `json:"org_id"`
+	PartnerID              uuid.UUID  `json:"partner_id"`
+	LinkedUserID           *uuid.UUID `json:"linked_user_id,omitempty"`
+	ClientName             string     `json:"client_name"`
+	ClientPhone            *string    `json:"client_phone,omitempty"`
+	PlanID                 *uuid.UUID `json:"plan_id,omitempty"`
+	Status                 string     `json:"status"`
+	InvitationToken        string     `json:"-"`
+	InvitationURL          string     `json:"invitation_url,omitempty"`
+	InvitationExpiresAt    *time.Time `json:"invitation_expires_at,omitempty"`
+	InvitationClaimedAt    *time.Time `json:"invitation_claimed_at,omitempty"`
+	HasGeneratedCommission bool       `json:"has_generated_commission"`
+	CommissionAmountXOF    *int       `json:"commission_amount_xof,omitempty"`
+	CommissionStatus       *string    `json:"commission_status,omitempty"`
+	CommissionPercentage   *float64   `json:"commission_percentage,omitempty"`
+	CommissionCreatedAt    *time.Time `json:"commission_created_at,omitempty"`
+	InvitedAt              time.Time  `json:"invited_at"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 // PartnerInvitationDetails is the public onboarding context for an invited client.
@@ -370,39 +380,55 @@ type PartnerInvitationDetails struct {
 
 // PartnerCommission represents an earned commission record.
 type PartnerCommission struct {
-	ID           uuid.UUID  `json:"id"`
-	OrgID        uuid.UUID  `json:"org_id"`
-	PartnerID    uuid.UUID  `json:"partner_id"`
-	PaymentID    *uuid.UUID `json:"payment_id,omitempty"`
-	AmountXOF    int        `json:"amount_xof"`
-	Status       string     `json:"status"`
-	PayoutMethod *string    `json:"payout_method,omitempty"`
-	PaidAt       *time.Time `json:"paid_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID                   uuid.UUID  `json:"id"`
+	OrgID                uuid.UUID  `json:"org_id"`
+	PartnerID            uuid.UUID  `json:"partner_id"`
+	PartnerClientID      *uuid.UUID `json:"partner_client_id,omitempty"`
+	ClientUserID         *uuid.UUID `json:"client_user_id,omitempty"`
+	PaymentID            *uuid.UUID `json:"payment_id,omitempty"`
+	PlanID               *uuid.UUID `json:"plan_id,omitempty"`
+	BaseAmountXOF        int        `json:"base_amount_xof"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	CommissionAmountXOF  int        `json:"commission_amount_xof"`
+	Status               string     `json:"status"`
+	PayoutMethod         *string    `json:"payout_method,omitempty"`
+	PaidAt               *time.Time `json:"paid_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 // PartnerProfile combines partner identity with aggregated stats.
 type PartnerProfile struct {
-	ID                 uuid.UUID `json:"id"`
-	StoreName          string    `json:"store_name"`
-	City               string    `json:"city"`
-	CommissionRate     float64   `json:"commission_rate"`
-	Status             string    `json:"status"`
-	TotalClients       int       `json:"total_clients"`
-	ActiveClients      int       `json:"active_clients"`
-	PlansPurchased     int       `json:"plans_purchased"`
-	MonthCommissionXOF int       `json:"month_commission_xof"`
+	ID                       uuid.UUID `json:"id"`
+	StoreName                string    `json:"store_name"`
+	City                     string    `json:"city"`
+	BusinessLocation         string    `json:"business_location"`
+	CommissionPercentage     float64   `json:"commission_percentage"`
+	Status                   string    `json:"status"`
+	TotalClients             int       `json:"total_clients"`
+	ActiveClients            int       `json:"active_clients"`
+	PlansPurchased           int       `json:"plans_purchased"`
+	TotalCommissionEarnedXOF int       `json:"total_commission_earned_xof"`
+	TotalCommissionOwedXOF   int       `json:"total_commission_owed_xof"`
+	TotalCommissionPaidXOF   int       `json:"total_commission_paid_xof"`
 }
 
 // PartnerSale is a read-only view of a commission with payment details.
 type PartnerSale struct {
-	ID            string    `json:"id"`
-	CustomerName  string    `json:"customer_name"`
-	PlanNameFR    *string   `json:"plan_name_fr,omitempty"`
-	PlanNameEN    *string   `json:"plan_name_en,omitempty"`
-	AmountXOF     int       `json:"amount_xof"`
-	CommissionXOF int       `json:"commission_xof"`
-	Date          time.Time `json:"date"`
+	ID                   string     `json:"id"`
+	PartnerClientID      *string    `json:"partner_client_id,omitempty"`
+	ClientUserID         *string    `json:"client_user_id,omitempty"`
+	PaymentID            *string    `json:"payment_id,omitempty"`
+	PlanID               *string    `json:"plan_id,omitempty"`
+	CustomerName         string     `json:"customer_name"`
+	PlanNameFR           *string    `json:"plan_name_fr,omitempty"`
+	PlanNameEN           *string    `json:"plan_name_en,omitempty"`
+	BaseAmountXOF        int        `json:"base_amount_xof"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	CommissionAmountXOF  int        `json:"commission_amount_xof"`
+	Status               string     `json:"status"`
+	PaidAt               *time.Time `json:"paid_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
 }
 
 // PartnerPayout is a read-only view of a paid commission (payout record).
@@ -427,13 +453,35 @@ type WebhookEvent struct {
 
 // AdminPartner is a read-only view of a partner for the admin dashboard.
 type AdminPartner struct {
-	ID                  string `json:"id"`
-	StoreName           string `json:"store_name"`
-	OwnerName           string `json:"owner_name"`
-	City                string `json:"city"`
-	ClientsCount        int    `json:"clients_count"`
-	ActiveClients       int    `json:"active_clients"`
-	CommissionThisMonth int    `json:"commission_this_month"`
-	Status              string `json:"status"`
-	JoinedAt            string `json:"joined_at"`
+	ID                       string  `json:"id"`
+	StoreName                string  `json:"store_name"`
+	OwnerName                string  `json:"owner_name"`
+	City                     string  `json:"city"`
+	BusinessLocation         string  `json:"business_location"`
+	CommissionPercentage     float64 `json:"commission_percentage"`
+	ClientsCount             int     `json:"clients_count"`
+	ActiveClients            int     `json:"active_clients"`
+	TotalCommissionEarnedXOF int     `json:"total_commission_earned_xof"`
+	TotalCommissionOwedXOF   int     `json:"total_commission_owed_xof"`
+	TotalCommissionPaidXOF   int     `json:"total_commission_paid_xof"`
+	Status                   string  `json:"status"`
+	JoinedAt                 string  `json:"joined_at"`
+}
+
+// AdminPartnerCommission is a read-only admin view of a partner commission line item.
+type AdminPartnerCommission struct {
+	ID                   string     `json:"id"`
+	PartnerClientID      *string    `json:"partner_client_id,omitempty"`
+	ClientUserID         *string    `json:"client_user_id,omitempty"`
+	PaymentID            *string    `json:"payment_id,omitempty"`
+	PlanID               *string    `json:"plan_id,omitempty"`
+	CustomerName         string     `json:"customer_name"`
+	PlanNameFR           *string    `json:"plan_name_fr,omitempty"`
+	PlanNameEN           *string    `json:"plan_name_en,omitempty"`
+	BaseAmountXOF        int        `json:"base_amount_xof"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	CommissionAmountXOF  int        `json:"commission_amount_xof"`
+	Status               string     `json:"status"`
+	PaidAt               *time.Time `json:"paid_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
 }

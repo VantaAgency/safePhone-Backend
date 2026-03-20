@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func NewPartnerApplicationService(
 }
 
 // Submit saves a new partner application linked to the authenticated user.
-func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthContext, storeName, fullName, phone, city string) (*domain.PartnerApplication, *domain.AppError) {
+func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthContext, storeName, fullName, phone, city, businessLocation string) (*domain.PartnerApplication, *domain.AppError) {
 	existing, err := s.repo.GetByUser(ctx, ac.OrgID, ac.UserID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -47,12 +48,13 @@ func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthCon
 	}
 
 	app := &domain.PartnerApplication{
-		OrgID:     ac.OrgID,
-		UserID:    ac.UserID,
-		StoreName: storeName,
-		FullName:  fullName,
-		Phone:     phone,
-		City:      city,
+		OrgID:            ac.OrgID,
+		UserID:           ac.UserID,
+		StoreName:        storeName,
+		FullName:         fullName,
+		Phone:            phone,
+		City:             city,
+		BusinessLocation: businessLocation,
 	}
 	if err := s.repo.Create(ctx, app); err != nil {
 		return nil, domain.InternalError(err)
@@ -82,7 +84,7 @@ func (s *PartnerApplicationService) ListApplications(ctx context.Context, ac *au
 }
 
 // ReviewApplication approves or rejects a partner application.
-func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *auth.AuthContext, appID uuid.UUID, decision string, rejectionReason *string) (*domain.PartnerApplication, *domain.AppError) {
+func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *auth.AuthContext, appID uuid.UUID, decision string, rejectionReason *string, commissionPercentage *float64) (*domain.PartnerApplication, *domain.AppError) {
 	app, err := s.repo.GetByID(ctx, appID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -109,7 +111,11 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 		return app, nil
 
 	case "approved":
+		if !isValidCommissionPercentage(commissionPercentage) {
+			return nil, domain.BadRequest("commission_percentage must be between 0 and 100 with up to 2 decimals")
+		}
 		app.Status = string(domain.PartnerAppStatusApproved)
+		app.CommissionPercentage = commissionPercentage
 
 		if txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
 			// 1. Update application status
@@ -121,11 +127,11 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 				return err
 			}
 
-			// 2. Create Partner record (default 20% commission)
+			// 2. Create the partner record with the admin-assigned commission percentage.
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO partners (org_id, user_id, store_name, city, commission_rate, status)
-				VALUES ($1, $2, $3, $4, 0.20, 'active')
-			`, app.OrgID, app.UserID, app.StoreName, app.City); err != nil {
+				INSERT INTO partners (org_id, user_id, store_name, city, business_location, commission_percentage, status)
+				VALUES ($1, $2, $3, $4, $5, $6, 'active')
+			`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, *commissionPercentage); err != nil {
 				return err
 			}
 
@@ -155,4 +161,17 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 	default:
 		return nil, domain.BadRequest("decision must be 'approved' or 'rejected'")
 	}
+}
+
+func isValidCommissionPercentage(percentage *float64) bool {
+	if percentage == nil {
+		return false
+	}
+	if math.IsNaN(*percentage) || math.IsInf(*percentage, 0) {
+		return false
+	}
+	if *percentage <= 0 || *percentage > 100 {
+		return false
+	}
+	return math.Abs((*percentage*100)-math.Round(*percentage*100)) < 1e-9
 }

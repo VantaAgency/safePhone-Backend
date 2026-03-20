@@ -69,6 +69,22 @@ func (r *PaymentRepository) GetByProviderRef(ctx context.Context, providerRef st
 	return r.getOne(ctx, `SELECT `+paymentColumns+` FROM payments WHERE provider_ref = $1`, providerRef)
 }
 
+// GetFirstSuccessfulByUser returns the earliest successful payment for a user.
+func (r *PaymentRepository) GetFirstSuccessfulByUser(ctx context.Context, orgID, userID uuid.UUID) (*domain.Payment, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	return r.getOne(ctx, `
+		SELECT `+paymentColumns+`
+		FROM payments
+		WHERE org_id = $1
+		  AND user_id = $2
+		  AND status IN ('completed', 'refunded')
+		ORDER BY COALESCE(paid_at, created_at) ASC, created_at ASC, id ASC
+		LIMIT 1
+	`, orgID, userID)
+}
+
 // ListBySubscriptionID returns recent payments for a subscription.
 func (r *PaymentRepository) ListBySubscriptionID(ctx context.Context, subscriptionID uuid.UUID, limit int) ([]domain.Payment, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

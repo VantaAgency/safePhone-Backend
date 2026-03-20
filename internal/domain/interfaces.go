@@ -77,6 +77,7 @@ type PaymentRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Payment, error)
 	GetByIdempotencyKey(ctx context.Context, key string) (*Payment, error)
 	GetByProviderRef(ctx context.Context, providerRef string) (*Payment, error)
+	GetFirstSuccessfulByUser(ctx context.Context, orgID, userID uuid.UUID) (*Payment, error)
 	ListBySubscriptionID(ctx context.Context, subscriptionID uuid.UUID, limit int) ([]Payment, error)
 	ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]Payment, error)
 	Update(ctx context.Context, payment *Payment) error
@@ -85,20 +86,24 @@ type PaymentRepository interface {
 // PartnerRepository defines data access for the partner domain.
 type PartnerRepository interface {
 	Create(ctx context.Context, partner *Partner) error
+	GetByID(ctx context.Context, partnerID uuid.UUID) (*Partner, error)
 	GetByUser(ctx context.Context, orgID, userID uuid.UUID) (*Partner, error)
 	GetProfile(ctx context.Context, orgID, userID uuid.UUID) (*PartnerProfile, error)
 	CreateClient(ctx context.Context, client *PartnerClient) error
 	GetClientByID(ctx context.Context, clientID uuid.UUID) (*PartnerClient, error)
+	GetClientByLinkedUser(ctx context.Context, orgID, userID uuid.UUID) (*PartnerClient, error)
 	GetClientByInvitationToken(ctx context.Context, token string) (*PartnerClient, error)
 	GetInvitationDetailsByToken(ctx context.Context, token string) (*PartnerInvitationDetails, error)
 	ListClients(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]PartnerClient, error)
 	ClaimClientInvitation(ctx context.Context, clientID, userID uuid.UUID) error
 	RefreshClientInvitation(ctx context.Context, clientID uuid.UUID, token string, expiresAt time.Time) error
 	UpdateClientStatus(ctx context.Context, clientID uuid.UUID, status string, planID *uuid.UUID) error
-	UpdateLatestClientStatusByLinkedUser(ctx context.Context, userID uuid.UUID, status string, planID *uuid.UUID) error
+	UpdateClientStatusByLinkedUser(ctx context.Context, userID uuid.UUID, status string, planID *uuid.UUID) error
+	CreateCommission(ctx context.Context, commission *PartnerCommission) error
 	ListSales(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]PartnerSale, error)
 	ListPayouts(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]PartnerPayout, error)
 	ListAll(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]AdminPartner, error)
+	ListAdminCommissions(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]AdminPartnerCommission, error)
 }
 
 // WebhookEventRepository defines data access for webhook event dedup.

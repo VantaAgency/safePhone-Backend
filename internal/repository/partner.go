@@ -16,6 +16,11 @@ const partnerClientColumns = `
 	invitation_token, invitation_expires_at, invitation_claimed_at, invited_at, created_at, updated_at
 `
 
+const partnerClientColumnsQualified = `
+	pc.id, pc.org_id, pc.partner_id, pc.linked_user_id, pc.client_name, pc.client_phone, pc.plan_id, pc.status,
+	pc.invitation_token, pc.invitation_expires_at, pc.invitation_claimed_at, pc.invited_at, pc.created_at, pc.updated_at
+`
+
 // PartnerRepository implements domain.PartnerRepository using pgxpool.
 type PartnerRepository struct {
 	pool    *pgxpool.Pool
@@ -33,11 +38,23 @@ func (r *PartnerRepository) Create(ctx context.Context, partner *domain.Partner)
 	defer cancel()
 
 	return r.pool.QueryRow(ctx, `
-		INSERT INTO partners (org_id, user_id, store_name, city, commission_rate, status)
-		VALUES ($1, $2, $3, $4, $5, 'active')
+		INSERT INTO partners (org_id, user_id, store_name, city, business_location, commission_percentage, status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'active')
 		RETURNING id, created_at, updated_at
-	`, partner.OrgID, partner.UserID, partner.StoreName, partner.City, partner.CommissionRate,
+	`, partner.OrgID, partner.UserID, partner.StoreName, partner.City, partner.BusinessLocation, partner.CommissionPercentage,
 	).Scan(&partner.ID, &partner.CreatedAt, &partner.UpdatedAt)
+}
+
+// GetByID fetches a partner record by id.
+func (r *PartnerRepository) GetByID(ctx context.Context, partnerID uuid.UUID) (*domain.Partner, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	return r.scanPartnerRow(r.pool.QueryRow(ctx, `
+		SELECT id, org_id, user_id, store_name, city, business_location, commission_percentage, status, created_at, updated_at
+		FROM partners
+		WHERE id = $1
+	`, partnerID))
 }
 
 // GetByUser fetches a partner record by org_id and user_id.
@@ -45,22 +62,11 @@ func (r *PartnerRepository) GetByUser(ctx context.Context, orgID, userID uuid.UU
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	p := &domain.Partner{}
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, store_name, city, commission_rate, status, created_at, updated_at
+	return r.scanPartnerRow(r.pool.QueryRow(ctx, `
+		SELECT id, org_id, user_id, store_name, city, business_location, commission_percentage, status, created_at, updated_at
 		FROM partners
 		WHERE org_id = $1 AND user_id = $2
-	`, orgID, userID).Scan(
-		&p.ID, &p.OrgID, &p.UserID, &p.StoreName, &p.City,
-		&p.CommissionRate, &p.Status, &p.CreatedAt, &p.UpdatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
+	`, orgID, userID))
 }
 
 // GetProfile fetches the partner profile with aggregated stats.
@@ -71,21 +77,35 @@ func (r *PartnerRepository) GetProfile(ctx context.Context, orgID, userID uuid.U
 	prof := &domain.PartnerProfile{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT
-			p.id, p.store_name, p.city, p.commission_rate, p.status,
-			COUNT(DISTINCT pc.id) AS total_clients,
-			COUNT(DISTINCT pc.id) FILTER (WHERE pc.status = 'active') AS active_clients,
-			COUNT(DISTINCT pc.id) FILTER (WHERE pc.status != 'invited') AS plans_purchased,
-			COALESCE(SUM(comm.amount_xof) FILTER (
-				WHERE comm.status = 'paid' AND comm.created_at >= date_trunc('month', now())
-			), 0) AS month_commission_xof
+			p.id, p.store_name, p.city, p.business_location, p.commission_percentage, p.status,
+			COALESCE(client_stats.total_clients, 0) AS total_clients,
+			COALESCE(client_stats.active_clients, 0) AS active_clients,
+			COALESCE(client_stats.plans_purchased, 0) AS plans_purchased,
+			COALESCE(commission_stats.total_commission_earned_xof, 0) AS total_commission_earned_xof,
+			COALESCE(commission_stats.total_commission_owed_xof, 0) AS total_commission_owed_xof,
+			COALESCE(commission_stats.total_commission_paid_xof, 0) AS total_commission_paid_xof
 		FROM partners p
-		LEFT JOIN partner_clients pc ON pc.partner_id = p.id
-		LEFT JOIN partner_commissions comm ON comm.partner_id = p.id
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*) AS total_clients,
+				COUNT(*) FILTER (WHERE status = 'active') AS active_clients,
+				COUNT(*) FILTER (WHERE status != 'invited') AS plans_purchased
+			FROM partner_clients pc
+			WHERE pc.partner_id = p.id
+		) AS client_stats ON TRUE
+		LEFT JOIN LATERAL (
+			SELECT
+				SUM(commission_amount_xof) AS total_commission_earned_xof,
+				SUM(commission_amount_xof) FILTER (WHERE status != 'paid') AS total_commission_owed_xof,
+				SUM(commission_amount_xof) FILTER (WHERE status = 'paid') AS total_commission_paid_xof
+			FROM partner_commissions comm
+			WHERE comm.partner_id = p.id
+		) AS commission_stats ON TRUE
 		WHERE p.org_id = $1 AND p.user_id = $2
-		GROUP BY p.id
 	`, orgID, userID).Scan(
-		&prof.ID, &prof.StoreName, &prof.City, &prof.CommissionRate, &prof.Status,
-		&prof.TotalClients, &prof.ActiveClients, &prof.PlansPurchased, &prof.MonthCommissionXOF,
+		&prof.ID, &prof.StoreName, &prof.City, &prof.BusinessLocation, &prof.CommissionPercentage, &prof.Status,
+		&prof.TotalClients, &prof.ActiveClients, &prof.PlansPurchased,
+		&prof.TotalCommissionEarnedXOF, &prof.TotalCommissionOwedXOF, &prof.TotalCommissionPaidXOF,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -94,6 +114,18 @@ func (r *PartnerRepository) GetProfile(ctx context.Context, orgID, userID uuid.U
 		return nil, err
 	}
 	return prof, nil
+}
+
+// GetClientByLinkedUser returns the attributed partner client for a linked user.
+func (r *PartnerRepository) GetClientByLinkedUser(ctx context.Context, orgID, userID uuid.UUID) (*domain.PartnerClient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	return r.scanClientRow(r.pool.QueryRow(ctx, `
+		SELECT `+partnerClientColumns+`
+		FROM partner_clients
+		WHERE org_id = $1 AND linked_user_id = $2
+	`, orgID, userID))
 }
 
 // CreateClient inserts a new partner client record.
@@ -200,10 +232,16 @@ func (r *PartnerRepository) ListClients(ctx context.Context, partnerID uuid.UUID
 	}
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT `+partnerClientColumns+`
-		FROM partner_clients
-		WHERE partner_id = $1
-		ORDER BY invited_at DESC
+		SELECT `+partnerClientColumnsQualified+`,
+			(comm.id IS NOT NULL) AS has_generated_commission,
+			comm.commission_amount_xof,
+			comm.status,
+			comm.commission_percentage,
+			comm.created_at
+		FROM partner_clients pc
+		LEFT JOIN partner_commissions comm ON comm.partner_client_id = pc.id
+		WHERE pc.partner_id = $1
+		ORDER BY pc.invited_at DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {
@@ -213,11 +251,31 @@ func (r *PartnerRepository) ListClients(ctx context.Context, partnerID uuid.UUID
 
 	var clients []domain.PartnerClient
 	for rows.Next() {
-		c, err := r.scanClientRows(rows)
-		if err != nil {
+		var c domain.PartnerClient
+		if err := rows.Scan(
+			&c.ID,
+			&c.OrgID,
+			&c.PartnerID,
+			&c.LinkedUserID,
+			&c.ClientName,
+			&c.ClientPhone,
+			&c.PlanID,
+			&c.Status,
+			&c.InvitationToken,
+			&c.InvitationExpiresAt,
+			&c.InvitationClaimedAt,
+			&c.InvitedAt,
+			&c.CreatedAt,
+			&c.UpdatedAt,
+			&c.HasGeneratedCommission,
+			&c.CommissionAmountXOF,
+			&c.CommissionStatus,
+			&c.CommissionPercentage,
+			&c.CommissionCreatedAt,
+		); err != nil {
 			return nil, err
 		}
-		clients = append(clients, *c)
+		clients = append(clients, c)
 	}
 	if clients == nil {
 		clients = []domain.PartnerClient{}
@@ -287,26 +345,40 @@ func (r *PartnerRepository) UpdateClientStatus(ctx context.Context, clientID uui
 	return err
 }
 
-// UpdateLatestClientStatusByLinkedUser moves the latest linked invitation forward in the lifecycle.
-func (r *PartnerRepository) UpdateLatestClientStatusByLinkedUser(ctx context.Context, userID uuid.UUID, status string, planID *uuid.UUID) error {
+// UpdateClientStatusByLinkedUser moves the attributed partner client forward in the lifecycle.
+func (r *PartnerRepository) UpdateClientStatusByLinkedUser(ctx context.Context, userID uuid.UUID, status string, planID *uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	_, err := r.pool.Exec(ctx, `
-		WITH latest_client AS (
-			SELECT id
-			FROM partner_clients
-			WHERE linked_user_id = $1
-			ORDER BY invited_at DESC
-			LIMIT 1
-		)
-		UPDATE partner_clients pc
+		UPDATE partner_clients
 		SET status = $2,
-		    plan_id = COALESCE($3, pc.plan_id),
+		    plan_id = COALESCE($3, plan_id),
 		    updated_at = now()
-		FROM latest_client lc
-		WHERE pc.id = lc.id
+		WHERE linked_user_id = $1
 	`, userID, status, planID)
+	return err
+}
+
+// CreateCommission inserts a commission record if it has not already been recorded.
+func (r *PartnerRepository) CreateCommission(ctx context.Context, commission *domain.PartnerCommission) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO partner_commissions (
+			org_id, partner_id, partner_client_id, client_user_id, payment_id, plan_id,
+			base_amount_xof, commission_percentage, commission_amount_xof, status
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT DO NOTHING
+		RETURNING id, created_at, updated_at
+	`, commission.OrgID, commission.PartnerID, commission.PartnerClientID, commission.ClientUserID, commission.PaymentID,
+		commission.PlanID, commission.BaseAmountXOF, commission.CommissionPercentage, commission.CommissionAmountXOF, commission.Status,
+	).Scan(&commission.ID, &commission.CreatedAt, &commission.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
 	return err
 }
 
@@ -322,19 +394,26 @@ func (r *PartnerRepository) ListSales(ctx context.Context, partnerID uuid.UUID, 
 	rows, err := r.pool.Query(ctx, `
 		SELECT
 			comm.id::text,
-			u.full_name AS customer_name,
+			comm.partner_client_id::text,
+			comm.client_user_id::text,
+			comm.payment_id::text,
+			comm.plan_id::text,
+			COALESCE(pc.client_name, u.full_name, '-') AS customer_name,
 			pl.name_fr,
 			pl.name_en,
-			pay.amount_xof,
-			comm.amount_xof AS commission_xof,
-			pay.paid_at AS date
+			COALESCE(comm.base_amount_xof, 0),
+			COALESCE(comm.commission_percentage, 0),
+			comm.commission_amount_xof,
+			comm.status,
+			pay.paid_at,
+			comm.created_at
 		FROM partner_commissions comm
-		JOIN payments pay ON pay.id = comm.payment_id
-		JOIN users u ON u.id = pay.user_id
-		JOIN subscriptions sub ON sub.id = pay.subscription_id
-		JOIN plans pl ON pl.id = sub.plan_id
+		LEFT JOIN payments pay ON pay.id = comm.payment_id
+		LEFT JOIN users u ON u.id = comm.client_user_id
+		LEFT JOIN partner_clients pc ON pc.id = comm.partner_client_id
+		LEFT JOIN plans pl ON pl.id = comm.plan_id
 		WHERE comm.partner_id = $1
-		ORDER BY pay.paid_at DESC
+		ORDER BY COALESCE(pay.paid_at, comm.created_at) DESC, comm.created_at DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {
@@ -346,8 +425,9 @@ func (r *PartnerRepository) ListSales(ctx context.Context, partnerID uuid.UUID, 
 	for rows.Next() {
 		var s domain.PartnerSale
 		if err := rows.Scan(
-			&s.ID, &s.CustomerName, &s.PlanNameFR, &s.PlanNameEN,
-			&s.AmountXOF, &s.CommissionXOF, &s.Date,
+			&s.ID, &s.PartnerClientID, &s.ClientUserID, &s.PaymentID, &s.PlanID,
+			&s.CustomerName, &s.PlanNameFR, &s.PlanNameEN, &s.BaseAmountXOF,
+			&s.CommissionPercentage, &s.CommissionAmountXOF, &s.Status, &s.PaidAt, &s.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -419,7 +499,7 @@ func (r *PartnerRepository) ListPayouts(ctx context.Context, partnerID uuid.UUID
 	}
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT id::text, amount_xof, payout_method, status, paid_at
+		SELECT id::text, commission_amount_xof, COALESCE(payout_method, ''), status, paid_at
 		FROM partner_commissions
 		WHERE partner_id = $1 AND status = 'paid' AND paid_at IS NOT NULL
 		ORDER BY paid_at DESC
@@ -459,19 +539,33 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 			p.store_name,
 			u.full_name AS owner_name,
 			p.city,
-			COUNT(DISTINCT pc.id) AS clients_count,
-			COUNT(DISTINCT pc.id) FILTER (WHERE pc.status = 'active') AS active_clients,
-			COALESCE(SUM(comm.amount_xof) FILTER (
-				WHERE comm.status = 'paid' AND comm.created_at >= date_trunc('month', now())
-			), 0) AS commission_this_month,
+			p.business_location,
+			p.commission_percentage,
+			COALESCE(client_stats.clients_count, 0) AS clients_count,
+			COALESCE(client_stats.active_clients, 0) AS active_clients,
+			COALESCE(commission_stats.total_commission_earned_xof, 0) AS total_commission_earned_xof,
+			COALESCE(commission_stats.total_commission_owed_xof, 0) AS total_commission_owed_xof,
+			COALESCE(commission_stats.total_commission_paid_xof, 0) AS total_commission_paid_xof,
 			p.status,
 			to_char(p.created_at, 'Mon YYYY') AS joined_at
 		FROM partners p
 		JOIN users u ON u.id = p.user_id
-		LEFT JOIN partner_clients pc ON pc.partner_id = p.id
-		LEFT JOIN partner_commissions comm ON comm.partner_id = p.id
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*) AS clients_count,
+				COUNT(*) FILTER (WHERE status = 'active') AS active_clients
+			FROM partner_clients pc
+			WHERE pc.partner_id = p.id
+		) AS client_stats ON TRUE
+		LEFT JOIN LATERAL (
+			SELECT
+				SUM(commission_amount_xof) AS total_commission_earned_xof,
+				SUM(commission_amount_xof) FILTER (WHERE status != 'paid') AS total_commission_owed_xof,
+				SUM(commission_amount_xof) FILTER (WHERE status = 'paid') AS total_commission_paid_xof
+			FROM partner_commissions comm
+			WHERE comm.partner_id = p.id
+		) AS commission_stats ON TRUE
 		WHERE p.org_id = $1
-		GROUP BY p.id, u.full_name
 		ORDER BY p.created_at DESC
 		LIMIT $2 OFFSET $3
 	`, orgID, limit, offset)
@@ -484,9 +578,9 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 	for rows.Next() {
 		var ap domain.AdminPartner
 		if err := rows.Scan(
-			&ap.ID, &ap.StoreName, &ap.OwnerName, &ap.City,
-			&ap.ClientsCount, &ap.ActiveClients, &ap.CommissionThisMonth,
-			&ap.Status, &ap.JoinedAt,
+			&ap.ID, &ap.StoreName, &ap.OwnerName, &ap.City, &ap.BusinessLocation, &ap.CommissionPercentage,
+			&ap.ClientsCount, &ap.ActiveClients, &ap.TotalCommissionEarnedXOF,
+			&ap.TotalCommissionOwedXOF, &ap.TotalCommissionPaidXOF, &ap.Status, &ap.JoinedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -496,4 +590,94 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 		partners = []domain.AdminPartner{}
 	}
 	return partners, rows.Err()
+}
+
+// ListAdminCommissions returns line-item commission reporting for an admin-scoped partner.
+func (r *PartnerRepository) ListAdminCommissions(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]domain.AdminPartnerCommission, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			comm.id::text,
+			comm.partner_client_id::text,
+			comm.client_user_id::text,
+			comm.payment_id::text,
+			comm.plan_id::text,
+			COALESCE(pc.client_name, u.full_name, '-') AS customer_name,
+			pl.name_fr,
+			pl.name_en,
+			COALESCE(comm.base_amount_xof, 0),
+			COALESCE(comm.commission_percentage, 0),
+			comm.commission_amount_xof,
+			comm.status,
+			comm.paid_at,
+			comm.created_at
+		FROM partner_commissions comm
+		LEFT JOIN partner_clients pc ON pc.id = comm.partner_client_id
+		LEFT JOIN users u ON u.id = comm.client_user_id
+		LEFT JOIN plans pl ON pl.id = comm.plan_id
+		WHERE comm.partner_id = $1
+		ORDER BY comm.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, partnerID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var commissions []domain.AdminPartnerCommission
+	for rows.Next() {
+		var commission domain.AdminPartnerCommission
+		if err := rows.Scan(
+			&commission.ID,
+			&commission.PartnerClientID,
+			&commission.ClientUserID,
+			&commission.PaymentID,
+			&commission.PlanID,
+			&commission.CustomerName,
+			&commission.PlanNameFR,
+			&commission.PlanNameEN,
+			&commission.BaseAmountXOF,
+			&commission.CommissionPercentage,
+			&commission.CommissionAmountXOF,
+			&commission.Status,
+			&commission.PaidAt,
+			&commission.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		commissions = append(commissions, commission)
+	}
+	if commissions == nil {
+		commissions = []domain.AdminPartnerCommission{}
+	}
+	return commissions, rows.Err()
+}
+
+func (r *PartnerRepository) scanPartnerRow(row pgx.Row) (*domain.Partner, error) {
+	var partner domain.Partner
+	err := row.Scan(
+		&partner.ID,
+		&partner.OrgID,
+		&partner.UserID,
+		&partner.StoreName,
+		&partner.City,
+		&partner.BusinessLocation,
+		&partner.CommissionPercentage,
+		&partner.Status,
+		&partner.CreatedAt,
+		&partner.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &partner, nil
 }
