@@ -233,15 +233,32 @@ type AdminStats struct {
 }
 
 // AdminCustomer is a read-only view combining user + subscription + device data.
+type AdminCustomerSubscription struct {
+	ID                 string     `json:"id"`
+	PlanID             string     `json:"plan_id"`
+	PlanNameFR         *string    `json:"plan_name_fr,omitempty"`
+	PlanNameEN         *string    `json:"plan_name_en,omitempty"`
+	Status             string     `json:"status"`
+	BillingCycle       string     `json:"billing_cycle"`
+	DeviceID           string     `json:"device_id"`
+	DeviceBrand        *string    `json:"device_brand,omitempty"`
+	DeviceModel        *string    `json:"device_model,omitempty"`
+	DeviceType         *string    `json:"device_type,omitempty"`
+	CurrentPeriodStart *time.Time `json:"current_period_start,omitempty"`
+	CurrentPeriodEnd   *time.Time `json:"current_period_end,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
 type AdminCustomer struct {
-	ID                 string  `json:"id"`
-	FullName           string  `json:"full_name"`
-	Phone              *string `json:"phone,omitempty"`
-	Email              string  `json:"email"`
-	PlanNameFR         *string `json:"plan_name_fr,omitempty"`
-	PlanNameEN         *string `json:"plan_name_en,omitempty"`
-	DeviceCount        int     `json:"device_count"`
-	SubscriptionStatus *string `json:"subscription_status,omitempty"`
+	ID                      string                      `json:"id"`
+	FullName                string                      `json:"full_name"`
+	Phone                   *string                     `json:"phone,omitempty"`
+	Email                   string                      `json:"email"`
+	DeviceCount             int                         `json:"device_count"`
+	ActiveSubscriptionCount int                         `json:"active_subscription_count"`
+	TotalSubscriptionCount  int                         `json:"total_subscription_count"`
+	Subscriptions           []AdminCustomerSubscription `json:"subscriptions"`
 }
 
 // AdminPayment is a read-only view combining payment + user + plan data.

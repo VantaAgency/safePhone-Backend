@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -96,7 +97,7 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 	return stats, nil
 }
 
-// ListCustomers returns a list of org customers with their plan and device info.
+// ListCustomers returns a list of org customers with their subscriptions and device info.
 func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]domain.AdminCustomer, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -111,19 +112,66 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 			u.full_name,
 			u.phone,
 			u.email,
-			p.name_fr,
-			p.name_en,
-			COUNT(DISTINCT d.id) AS device_count,
-			s.status
+			(
+				SELECT COUNT(*)
+				FROM devices d_count
+				WHERE d_count.user_id = u.id
+				  AND d_count.org_id = u.org_id
+				  AND d_count.deleted_at IS NULL
+			) AS device_count,
+			(
+				SELECT COUNT(*)
+				FROM subscriptions s_count
+				WHERE s_count.user_id = u.id
+				  AND s_count.org_id = u.org_id
+				  AND s_count.status = 'active'
+			) AS active_subscription_count,
+			(
+				SELECT COUNT(*)
+				FROM subscriptions s_count
+				WHERE s_count.user_id = u.id
+				  AND s_count.org_id = u.org_id
+			) AS total_subscription_count,
+			COALESCE(
+				jsonb_agg(
+					jsonb_build_object(
+						'id', s.id::text,
+						'plan_id', s.plan_id::text,
+						'plan_name_fr', p.name_fr,
+						'plan_name_en', p.name_en,
+						'status', s.status,
+						'billing_cycle', s.billing_cycle,
+						'device_id', s.device_id::text,
+						'device_brand', d.brand,
+						'device_model', d.model,
+						'device_type', d.device_type,
+						'current_period_start', s.current_period_start,
+						'current_period_end', s.current_period_end,
+						'created_at', s.created_at,
+						'updated_at', s.updated_at
+					)
+					ORDER BY
+						CASE s.status
+							WHEN 'active' THEN 0
+							WHEN 'pending' THEN 1
+							WHEN 'expired' THEN 2
+							WHEN 'cancelled' THEN 3
+							ELSE 4
+						END,
+						COALESCE(s.current_period_end, s.created_at) DESC NULLS LAST,
+						s.created_at DESC
+				) FILTER (WHERE s.id IS NOT NULL),
+				'[]'::jsonb
+			) AS subscriptions
 		FROM users u
 		LEFT JOIN subscriptions s ON s.user_id = u.id AND s.org_id = u.org_id
-			AND s.status = 'active'
 		LEFT JOIN plans p ON p.id = s.plan_id
-		LEFT JOIN devices d ON d.user_id = u.id AND d.org_id = u.org_id AND d.deleted_at IS NULL
+		LEFT JOIN devices d ON d.id = s.device_id AND d.org_id = s.org_id AND d.deleted_at IS NULL
 		WHERE u.org_id = $1
 		  AND u.deleted_at IS NULL
 		  AND ($2 = '' OR lower(u.full_name) LIKE '%' || lower($2) || '%' OR lower(u.email) LIKE '%' || lower($2) || '%')
-		GROUP BY u.id, u.full_name, u.phone, u.email, p.name_fr, p.name_en, s.status
+		  AND u.role = 'member'
+		GROUP BY u.id, u.full_name, u.phone, u.email, u.created_at
 		ORDER BY u.created_at DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, search, limit, offset)
@@ -135,9 +183,30 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 	var customers []domain.AdminCustomer
 	for rows.Next() {
 		var c domain.AdminCustomer
-		if err := rows.Scan(&c.ID, &c.FullName, &c.Phone, &c.Email, &c.PlanNameFR, &c.PlanNameEN, &c.DeviceCount, &c.SubscriptionStatus); err != nil {
+		var subscriptions json.RawMessage
+
+		if err := rows.Scan(
+			&c.ID,
+			&c.FullName,
+			&c.Phone,
+			&c.Email,
+			&c.DeviceCount,
+			&c.ActiveSubscriptionCount,
+			&c.TotalSubscriptionCount,
+			&subscriptions,
+		); err != nil {
 			return nil, err
 		}
+
+		if len(subscriptions) > 0 {
+			if err := json.Unmarshal(subscriptions, &c.Subscriptions); err != nil {
+				return nil, err
+			}
+		}
+		if c.Subscriptions == nil {
+			c.Subscriptions = []domain.AdminCustomerSubscription{}
+		}
+
 		customers = append(customers, c)
 	}
 	if customers == nil {
