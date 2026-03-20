@@ -73,6 +73,10 @@ func (r *DeviceRepository) Create(ctx context.Context, d *domain.Device) error {
 
 // GetByID returns a device by ID (excluding soft-deleted).
 func (r *DeviceRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Device, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, nil, nil, nil, &id); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -115,6 +119,10 @@ func (r *DeviceRepository) GetByIMEI(ctx context.Context, imei string) (*domain.
 
 // ListByOrgAndUser returns devices for a specific org and user.
 func (r *DeviceRepository) ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]domain.Device, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, &userID, nil, nil); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 

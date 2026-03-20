@@ -24,6 +24,10 @@ func NewAdminRepository(pool *pgxpool.Pool) *AdminRepository {
 
 // GetStats returns aggregate platform statistics for the org.
 func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domain.AdminStats, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, nil, nil, nil); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -99,6 +103,10 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 
 // ListCustomers returns a list of org customers with their subscriptions and device info.
 func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]domain.AdminCustomer, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, nil, nil, nil); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 

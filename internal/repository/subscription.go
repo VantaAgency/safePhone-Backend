@@ -42,6 +42,10 @@ func (r *SubscriptionRepository) Create(ctx context.Context, s *domain.Subscript
 
 // GetByID returns a subscription by ID.
 func (r *SubscriptionRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Subscription, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, nil, nil, &id, nil); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -59,6 +63,10 @@ func (r *SubscriptionRepository) GetByID(ctx context.Context, id uuid.UUID) (*do
 
 // GetByDeviceID returns the most recent subscription for a device.
 func (r *SubscriptionRepository) GetByDeviceID(ctx context.Context, deviceID uuid.UUID) (*domain.Subscription, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, nil, nil, nil, &deviceID); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -83,6 +91,10 @@ func (r *SubscriptionRepository) GetByDeviceID(ctx context.Context, deviceID uui
 
 // ListByOrgAndUser returns subscriptions for a specific org and user.
 func (r *SubscriptionRepository) ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]domain.Subscription, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, &userID, nil, nil); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
