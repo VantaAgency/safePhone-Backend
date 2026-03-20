@@ -31,6 +31,14 @@ type CreatePaymentRequest struct {
 	IdempotencyKey string `json:"idempotency_key" validate:"omitempty,max=100"`
 }
 
+// RenewSubscriptionPaymentRequest is the request body for renewing an expired subscription.
+type RenewSubscriptionPaymentRequest struct {
+	SubscriptionID string `json:"subscription_id" validate:"required,uuid"`
+	PlanID         string `json:"plan_id" validate:"required,uuid"`
+	BillingCycle   string `json:"billing_cycle" validate:"required,oneof=monthly annual"`
+	IdempotencyKey string `json:"idempotency_key" validate:"omitempty,max=100"`
+}
+
 // PaymentHandler handles payment-related HTTP requests.
 type PaymentHandler struct {
 	svc      *service.PaymentService
@@ -74,6 +82,48 @@ func (h *PaymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		r.Context(), ac,
 		domain.NormalizeDeviceType(req.DeviceType), req.Brand, req.Model, req.IMEI, req.Metadata.ToDomain(),
 		planID, req.BillingCycle, idempKey,
+	)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusCreated, result)
+}
+
+// RenewSubscription initiates a renewal checkout for an expired subscription.
+func (h *PaymentHandler) RenewSubscription(w http.ResponseWriter, r *http.Request) {
+	var req RenewSubscriptionPaymentRequest
+	if err := DecodeJSON(r, &req); err != nil {
+		WriteError(w, r, domain.BadRequest("invalid request body"))
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		WriteError(w, r, domain.ValidationFailed("validation failed", nil))
+		return
+	}
+
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+
+	subscriptionID, _ := uuid.Parse(req.SubscriptionID)
+	planID, _ := uuid.Parse(req.PlanID)
+
+	var idempKey *string
+	if req.IdempotencyKey != "" {
+		idempKey = &req.IdempotencyKey
+	}
+
+	result, appErr := h.svc.RenewSubscription(
+		r.Context(),
+		ac,
+		subscriptionID,
+		planID,
+		req.BillingCycle,
+		idempKey,
 	)
 	if appErr != nil {
 		WriteError(w, r, appErr)

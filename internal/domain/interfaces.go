@@ -36,6 +36,7 @@ type SubscriptionRepository interface {
 	Create(ctx context.Context, sub *Subscription) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Subscription, error)
 	GetByDeviceID(ctx context.Context, deviceID uuid.UUID) (*Subscription, error)
+	ListByDeviceID(ctx context.Context, deviceID uuid.UUID, limit int) ([]Subscription, error)
 	ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]Subscription, error)
 	Update(ctx context.Context, sub *Subscription) error
 }

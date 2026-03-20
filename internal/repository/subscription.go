@@ -89,6 +89,49 @@ func (r *SubscriptionRepository) GetByDeviceID(ctx context.Context, deviceID uui
 	return &s, err
 }
 
+// ListByDeviceID returns recent subscriptions for a device.
+func (r *SubscriptionRepository) ListByDeviceID(ctx context.Context, deviceID uuid.UUID, limit int) ([]domain.Subscription, error) {
+	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, nil, nil, nil, &deviceID); err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+subColumns+`
+		FROM subscriptions
+		WHERE device_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, deviceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []domain.Subscription
+	for rows.Next() {
+		var s domain.Subscription
+		if err := rows.Scan(
+			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle,
+			&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
+			&s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		subs = append(subs, s)
+	}
+
+	if subs == nil {
+		subs = []domain.Subscription{}
+	}
+	return subs, rows.Err()
+}
+
 // ListByOrgAndUser returns subscriptions for a specific org and user.
 func (r *SubscriptionRepository) ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]domain.Subscription, error) {
 	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, &userID, nil, nil); err != nil {

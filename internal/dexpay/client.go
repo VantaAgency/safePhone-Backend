@@ -98,6 +98,14 @@ func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
 	}
 }
 
+// SetHTTPClient overrides the underlying HTTP client.
+func (c *Client) SetHTTPClient(httpClient *http.Client) {
+	if c == nil || httpClient == nil {
+		return
+	}
+	c.httpClient = httpClient
+}
+
 // Environment returns the resolved DEXPAY environment for this client.
 func (c *Client) Environment() string {
 	return dexpayEnvironmentFromBaseURL(c.baseURL)

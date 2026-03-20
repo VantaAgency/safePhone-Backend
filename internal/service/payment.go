@@ -128,10 +128,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		}
 	}
 
-	amount := plan.PriceMonthly
-	if billingCycle == "annual" {
-		amount = plan.PriceAnnual
-	}
+	amount := planAmountForBillingCycle(plan, billingCycle)
 
 	var imeiPtr *string
 	if imei != "" {
@@ -242,6 +239,105 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		Payment:      &payment,
 		Device:       &device,
 		Subscription: &sub,
+		PaymentURL:   valueOrEmpty(payment.PaymentURL),
+	}, nil
+}
+
+// RenewSubscription creates a fresh subscription + payment checkout for an expired subscription.
+func (s *PaymentService) RenewSubscription(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	sourceSubscriptionID, planID uuid.UUID,
+	billingCycle string,
+	idempotencyKey *string,
+) (*CheckoutResult, *domain.AppError) {
+	if s.dexpayClient == nil && !s.devMode {
+		return nil, domain.PaymentGatewayError(fmt.Errorf("DEXPAY is not configured: missing validated backend credentials"))
+	}
+
+	if idempotencyKey != nil {
+		existing, err := s.repo.GetByIdempotencyKey(ctx, *idempotencyKey)
+		if err != nil {
+			return nil, domain.InternalError(err)
+		}
+		if existing != nil {
+			if existing.OrgID != ac.OrgID || existing.UserID != ac.UserID {
+				return nil, domain.Conflict("idempotency key is already in use")
+			}
+			return s.buildCheckoutResult(ctx, existing, true)
+		}
+	}
+
+	sourceSub, err := s.subRepo.GetByID(ctx, sourceSubscriptionID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if sourceSub == nil || sourceSub.OrgID != ac.OrgID || sourceSub.UserID != ac.UserID {
+		return nil, domain.NotFound("subscription")
+	}
+	if sourceSub.Status != domain.SubscriptionStatusExpired {
+		return nil, domain.BadRequest("subscription can only be renewed after it has expired")
+	}
+
+	device, err := s.deviceRepo.GetByID(ctx, sourceSub.DeviceID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if device == nil || device.OrgID != ac.OrgID || device.UserID != ac.UserID {
+		return nil, domain.NotFound("device")
+	}
+
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if appErr := validatePlanAvailability(plan, s.devMode); appErr != nil {
+		return nil, appErr
+	}
+
+	deviceSubscriptions, err := s.subRepo.ListByDeviceID(ctx, sourceSub.DeviceID, 50)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	for _, existingSub := range deviceSubscriptions {
+		if existingSub.ID == sourceSub.ID {
+			continue
+		}
+		if existingSub.OrgID != ac.OrgID || existingSub.UserID != ac.UserID {
+			continue
+		}
+		if existingSub.Status == domain.SubscriptionStatusActive || existingSub.Status == domain.SubscriptionStatusPending {
+			return nil, domain.Conflict("device already has an active or pending subscription")
+		}
+	}
+
+	sub, payment, err := s.createRenewalSubscriptionAndPayment(ctx, ac, device.ID, planID, billingCycle, idempotencyKey, planAmountForBillingCycle(plan, billingCycle))
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+
+	if s.dexpayClient != nil {
+		return s.initiateDexpayCheckout(ctx, ac, device, sub, payment, plan)
+	}
+
+	if s.devMode {
+		slog.Warn("DEXPAY disabled, using development payment fallback")
+		nowTime := time.Now()
+		payment.Status = domain.PaymentStatusCompleted
+		payment.PaidAt = &nowTime
+		payment.FailedAt = nil
+		if err := s.repo.Update(ctx, payment); err != nil {
+			return nil, domain.InternalError(err)
+		}
+		if appErr := s.finalizeSuccessfulPayment(ctx, payment, sub, device); appErr != nil {
+			return nil, appErr
+		}
+	}
+
+	return &CheckoutResult{
+		Payment:      payment,
+		Device:       device,
+		Subscription: sub,
 		PaymentURL:   valueOrEmpty(payment.PaymentURL),
 	}, nil
 }
@@ -504,6 +600,16 @@ func buildCheckoutItemName(plan *domain.Plan, billingCycle string) string {
 		return fmt.Sprintf("SafePhone %s (annual)", name)
 	}
 	return fmt.Sprintf("SafePhone %s (monthly)", name)
+}
+
+func planAmountForBillingCycle(plan *domain.Plan, billingCycle string) int {
+	if plan == nil {
+		return 0
+	}
+	if billingCycle == "annual" {
+		return plan.PriceAnnual
+	}
+	return plan.PriceMonthly
 }
 
 func buildFrontendCallbackURL(baseURL, path string, payment *domain.Payment) string {
@@ -825,6 +931,88 @@ func (s *PaymentService) createPaymentAttempt(ctx context.Context, ac *auth.Auth
 	}
 
 	return payment, nil
+}
+
+func (s *PaymentService) createRenewalSubscriptionAndPayment(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	deviceID, planID uuid.UUID,
+	billingCycle string,
+	idempotencyKey *string,
+	amount int,
+) (*domain.Subscription, *domain.Payment, error) {
+	sub := &domain.Subscription{
+		OrgID:              ac.OrgID,
+		UserID:             ac.UserID,
+		DeviceID:           deviceID,
+		PlanID:             planID,
+		Status:             domain.SubscriptionStatusPending,
+		BillingCycle:       billingCycle,
+		CurrentPeriodStart: nil,
+		CurrentPeriodEnd:   nil,
+	}
+
+	paymentID := uuid.New()
+	providerRef := buildCheckoutReference(paymentID)
+	payment := &domain.Payment{
+		ID:             paymentID,
+		OrgID:          ac.OrgID,
+		UserID:         ac.UserID,
+		PlanID:         planID,
+		AmountXOF:      amount,
+		Currency:       dexpayCurrencyXOF,
+		Provider:       dexpayProviderName,
+		Status:         domain.PaymentStatusPending,
+		ProviderRef:    &providerRef,
+		IdempotencyKey: idempotencyKey,
+	}
+
+	if s.pool == nil {
+		if err := s.subRepo.Create(ctx, sub); err != nil {
+			return nil, nil, err
+		}
+		payment.SubscriptionID = sub.ID
+		if err := s.repo.Create(ctx, payment); err != nil {
+			return nil, nil, err
+		}
+		return sub, payment, nil
+	}
+
+	txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `
+			INSERT INTO subscriptions (org_id, user_id, device_id, plan_id, status, billing_cycle,
+			       current_period_start, current_period_end)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id, created_at, updated_at
+		`, sub.OrgID, sub.UserID, sub.DeviceID, sub.PlanID, sub.Status, sub.BillingCycle,
+			sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+		).Scan(&sub.ID, &sub.CreatedAt, &sub.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("insert renewal subscription: %w", err)
+		}
+
+		payment.SubscriptionID = sub.ID
+		err = tx.QueryRow(ctx, `
+			INSERT INTO payments (
+				id, org_id, user_id, plan_id, subscription_id, amount_xof, currency,
+				provider, payment_method, status, provider_ref, idempotency_key
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			RETURNING created_at, updated_at
+		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountXOF, payment.Currency,
+			payment.Provider, payment.PaymentMethod, payment.Status, payment.ProviderRef, payment.IdempotencyKey,
+		).Scan(&payment.CreatedAt, &payment.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("insert renewal payment: %w", err)
+		}
+
+		return nil
+	})
+	if txErr != nil {
+		return nil, nil, txErr
+	}
+
+	return sub, payment, nil
 }
 
 func (s *PaymentService) refreshPaymentState(ctx context.Context, payment *domain.Payment, syncWithProvider bool) *domain.AppError {

@@ -209,6 +209,7 @@ func main() {
 
 			// Payments
 			r.Post("/payments", paymentH.Create)
+			r.Post("/payments/renew-subscription", paymentH.RenewSubscription)
 			r.Get("/payments", paymentH.List)
 			r.Get("/payments/{id}", paymentH.Get)
 			r.Get("/payments/{id}/checkout", paymentH.GetCheckout)
