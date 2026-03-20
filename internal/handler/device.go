@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -13,18 +14,38 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/service"
 )
 
+type DeviceMetadataPayload struct {
+	SerialNumber     string `json:"serial_number"`
+	ScreenSize       string `json:"screen_size"`
+	ComputerCategory string `json:"computer_category"`
+	ProductSubtype   string `json:"product_subtype"`
+}
+
+func (p DeviceMetadataPayload) ToDomain() domain.DeviceMetadata {
+	return domain.DeviceMetadata{
+		SerialNumber:     strings.TrimSpace(p.SerialNumber),
+		ScreenSize:       strings.TrimSpace(p.ScreenSize),
+		ComputerCategory: strings.TrimSpace(p.ComputerCategory),
+		ProductSubtype:   strings.TrimSpace(p.ProductSubtype),
+	}
+}
+
 // CreateDeviceRequest is the request body for device registration.
 type CreateDeviceRequest struct {
-	Brand string `json:"brand" validate:"required,min=1,max=100"`
-	Model string `json:"model" validate:"required,min=1,max=200"`
-	IMEI  string `json:"imei" validate:"omitempty,len=15,numeric"`
+	DeviceType string                `json:"device_type" validate:"omitempty,oneof=smartphone tablet tv computer home_electronics"`
+	Brand      string                `json:"brand" validate:"required,min=1,max=100"`
+	Model      string                `json:"model" validate:"required,min=1,max=200"`
+	Metadata   DeviceMetadataPayload `json:"metadata"`
+	IMEI       string                `json:"imei" validate:"omitempty,len=15,numeric"`
 }
 
 // UpdateDeviceRequest is the request body for updating a device.
 type UpdateDeviceRequest struct {
-	Brand string `json:"brand" validate:"required,min=1,max=100"`
-	Model string `json:"model" validate:"required,min=1,max=200"`
-	IMEI  string `json:"imei" validate:"omitempty,len=15,numeric"`
+	DeviceType string                 `json:"device_type" validate:"omitempty,oneof=smartphone tablet tv computer home_electronics"`
+	Brand      string                 `json:"brand" validate:"required,min=1,max=100"`
+	Model      string                 `json:"model" validate:"required,min=1,max=200"`
+	Metadata   *DeviceMetadataPayload `json:"metadata,omitempty"`
+	IMEI       string                 `json:"imei" validate:"omitempty,len=15,numeric"`
 }
 
 // DeviceHandler handles device-related HTTP requests.
@@ -59,7 +80,15 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device, appErr := h.svc.Create(r.Context(), ac, req.Brand, req.Model, req.IMEI)
+	device, appErr := h.svc.Create(
+		r.Context(),
+		ac,
+		domain.NormalizeDeviceType(req.DeviceType),
+		req.Brand,
+		req.Model,
+		req.IMEI,
+		req.Metadata.ToDomain(),
+	)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
@@ -138,7 +167,22 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device, appErr := h.svc.Update(r.Context(), ac, id, req.Brand, req.Model, req.IMEI)
+	var metadata *domain.DeviceMetadata
+	if req.Metadata != nil {
+		value := req.Metadata.ToDomain()
+		metadata = &value
+	}
+
+	device, appErr := h.svc.Update(
+		r.Context(),
+		ac,
+		id,
+		domain.NormalizeDeviceType(req.DeviceType),
+		req.Brand,
+		req.Model,
+		req.IMEI,
+		metadata,
+	)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

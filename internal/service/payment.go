@@ -84,7 +84,7 @@ func NewPaymentService(
 
 // Create atomically creates a device, subscription, and payment, then initiates checkout.
 func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
-	brand, model, imei string,
+	deviceType domain.DeviceType, brand, model, imei string, metadata domain.DeviceMetadata,
 	planID uuid.UUID, billingCycle string,
 	idempotencyKey *string,
 ) (*CheckoutResult, *domain.AppError) {
@@ -111,6 +111,11 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 	}
 	if appErr := validatePlanAvailability(plan, s.devMode); appErr != nil {
 		return nil, appErr
+	}
+	deviceType = domain.NormalizeDeviceType(string(deviceType))
+	metadata = metadata.Normalize()
+	if fields := domain.ValidateDeviceInput(plan, deviceType, brand, model, imei, metadata); len(fields) > 0 {
+		return nil, domain.ValidationFailed("validation failed", fields)
 	}
 
 	if imei != "" {
@@ -152,18 +157,20 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 
 	txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
-			INSERT INTO devices (org_id, user_id, brand, model, imei, status)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO devices (org_id, user_id, device_type, brand, model, metadata, imei, status)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
 			RETURNING id, created_at, updated_at
-		`, ac.OrgID, ac.UserID, brand, model, imeiPtr, domain.DeviceStatusPending,
+		`, ac.OrgID, ac.UserID, deviceType, brand, model, mustJSON(metadata), imeiPtr, domain.DeviceStatusPending,
 		).Scan(&device.ID, &device.CreatedAt, &device.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert device: %w", err)
 		}
 		device.OrgID = ac.OrgID
 		device.UserID = ac.UserID
+		device.DeviceType = deviceType
 		device.Brand = brand
 		device.Model = model
+		device.Metadata = metadata
 		device.IMEI = imei
 		device.Status = domain.DeviceStatusPending
 
@@ -778,7 +785,7 @@ func (s *PaymentService) activateCoverage(ctx context.Context, sub *domain.Subsc
 
 	if device != nil {
 		nextStatus := domain.DeviceStatusPending
-		if sub != nil && sub.Status == domain.SubscriptionStatusActive && strings.TrimSpace(device.IMEI) != "" {
+		if sub != nil && sub.Status == domain.SubscriptionStatusActive && (!device.RequiresIMEI() || strings.TrimSpace(device.IMEI) != "") {
 			nextStatus = domain.DeviceStatusActive
 		}
 		if device.Status != nextStatus {
@@ -1033,6 +1040,14 @@ func valueOrEmpty(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func mustJSON(value any) []byte {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return []byte("{}")
+	}
+	return payload
 }
 
 func webhookPaymentURL(data *dexpay.CheckoutWebhookData) string {

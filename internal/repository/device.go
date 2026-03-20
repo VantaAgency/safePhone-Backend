@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,16 +39,36 @@ func scanIMEI(p *string) string {
 	return *p
 }
 
+func marshalDeviceMetadata(metadata domain.DeviceMetadata) []byte {
+	payload, err := json.Marshal(metadata.Normalize())
+	if err != nil {
+		return []byte("{}")
+	}
+	return payload
+}
+
+func scanDeviceMetadata(payload []byte) domain.DeviceMetadata {
+	if len(payload) == 0 {
+		return domain.DeviceMetadata{}
+	}
+
+	var metadata domain.DeviceMetadata
+	if err := json.Unmarshal(payload, &metadata); err != nil {
+		return domain.DeviceMetadata{}
+	}
+	return metadata.Normalize()
+}
+
 // Create inserts a new device.
 func (r *DeviceRepository) Create(ctx context.Context, d *domain.Device) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	return r.pool.QueryRow(ctx, `
-		INSERT INTO devices (org_id, user_id, brand, model, imei, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO devices (org_id, user_id, device_type, brand, model, metadata, imei, status)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
 		RETURNING id, created_at, updated_at
-	`, d.OrgID, d.UserID, d.Brand, d.Model, nullableIMEI(d.IMEI), d.Status).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
+	`, d.OrgID, d.UserID, d.DeviceType, d.Brand, d.Model, marshalDeviceMetadata(d.Metadata), nullableIMEI(d.IMEI), d.Status).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
 // GetByID returns a device by ID (excluding soft-deleted).
@@ -57,15 +78,17 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.D
 
 	var d domain.Device
 	var imei *string
+	var metadata []byte
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, brand, model, imei, status, created_at, updated_at, deleted_at
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, created_at, updated_at, deleted_at
 		FROM devices WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&d.ID, &d.OrgID, &d.UserID, &d.Brand, &d.Model, &imei, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
+	`, id).Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
 
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	d.IMEI = scanIMEI(imei)
+	d.Metadata = scanDeviceMetadata(metadata)
 	return &d, err
 }
 
@@ -76,15 +99,17 @@ func (r *DeviceRepository) GetByIMEI(ctx context.Context, imei string) (*domain.
 
 	var d domain.Device
 	var scannedIMEI *string
+	var metadata []byte
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, brand, model, imei, status, created_at, updated_at, deleted_at
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, created_at, updated_at, deleted_at
 		FROM devices WHERE imei = $1 AND deleted_at IS NULL
-	`, imei).Scan(&d.ID, &d.OrgID, &d.UserID, &d.Brand, &d.Model, &scannedIMEI, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
+	`, imei).Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &scannedIMEI, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
 
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	d.IMEI = scanIMEI(scannedIMEI)
+	d.Metadata = scanDeviceMetadata(metadata)
 	return &d, err
 }
 
@@ -94,7 +119,7 @@ func (r *DeviceRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 	defer cancel()
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, org_id, user_id, brand, model, imei, status, created_at, updated_at, deleted_at
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, created_at, updated_at, deleted_at
 		FROM devices
 		WHERE org_id = $1 AND user_id = $2 AND deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -109,10 +134,12 @@ func (r *DeviceRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 	for rows.Next() {
 		var d domain.Device
 		var imei *string
-		if err := rows.Scan(&d.ID, &d.OrgID, &d.UserID, &d.Brand, &d.Model, &imei, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt); err != nil {
+		var metadata []byte
+		if err := rows.Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt); err != nil {
 			return nil, err
 		}
 		d.IMEI = scanIMEI(imei)
+		d.Metadata = scanDeviceMetadata(metadata)
 		devices = append(devices, d)
 	}
 
@@ -128,9 +155,10 @@ func (r *DeviceRepository) Update(ctx context.Context, d *domain.Device) error {
 	defer cancel()
 
 	_, err := r.pool.Exec(ctx, `
-		UPDATE devices SET brand = $2, model = $3, status = $4, imei = $5, updated_at = now()
+		UPDATE devices
+		SET device_type = $2, brand = $3, model = $4, metadata = $5::jsonb, status = $6, imei = $7, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL
-	`, d.ID, d.Brand, d.Model, d.Status, nullableIMEI(d.IMEI))
+	`, d.ID, d.DeviceType, d.Brand, d.Model, marshalDeviceMetadata(d.Metadata), d.Status, nullableIMEI(d.IMEI))
 	return err
 }
 

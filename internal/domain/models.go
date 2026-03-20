@@ -55,6 +55,18 @@ type Plan struct {
 }
 
 const DevelopmentTestPlanSlug = "test-plan-dev"
+const TotalPlanSlug = "totale"
+
+// DeviceType enumerates supported registered device categories.
+type DeviceType string
+
+const (
+	DeviceTypeSmartphone      DeviceType = "smartphone"
+	DeviceTypeTablet          DeviceType = "tablet"
+	DeviceTypeTV              DeviceType = "tv"
+	DeviceTypeComputer        DeviceType = "computer"
+	DeviceTypeHomeElectronics DeviceType = "home_electronics"
+)
 
 // DeviceStatus enumerates possible device states.
 type DeviceStatus string
@@ -66,18 +78,28 @@ const (
 	DeviceStatusSuspended DeviceStatus = "suspended"
 )
 
-// Device represents a registered smartphone.
+// DeviceMetadata stores type-specific optional fields for a registered device.
+type DeviceMetadata struct {
+	SerialNumber     string `json:"serial_number,omitempty"`
+	ScreenSize       string `json:"screen_size,omitempty"`
+	ComputerCategory string `json:"computer_category,omitempty"`
+	ProductSubtype   string `json:"product_subtype,omitempty"`
+}
+
+// Device represents a registered covered device.
 type Device struct {
-	ID        uuid.UUID    `json:"id"`
-	OrgID     uuid.UUID    `json:"org_id"`
-	UserID    uuid.UUID    `json:"user_id"`
-	Brand     string       `json:"brand"`
-	Model     string       `json:"model"`
-	IMEI      string       `json:"imei"`
-	Status    DeviceStatus `json:"status"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
-	DeletedAt *time.Time   `json:"deleted_at,omitempty"`
+	ID         uuid.UUID      `json:"id"`
+	OrgID      uuid.UUID      `json:"org_id"`
+	UserID     uuid.UUID      `json:"user_id"`
+	DeviceType DeviceType     `json:"device_type"`
+	Brand      string         `json:"brand"`
+	Model      string         `json:"model"`
+	Metadata   DeviceMetadata `json:"metadata"`
+	IMEI       string         `json:"imei"`
+	Status     DeviceStatus   `json:"status"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  *time.Time     `json:"deleted_at,omitempty"`
 }
 
 // SubscriptionStatus enumerates possible subscription states.

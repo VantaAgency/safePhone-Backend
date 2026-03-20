@@ -17,9 +17,11 @@ import (
 // It atomically creates a device, subscription, and payment in one call.
 type CreatePaymentRequest struct {
 	// Device fields
-	Brand string `json:"brand" validate:"required,min=1,max=100"`
-	Model string `json:"model" validate:"required,min=1,max=200"`
-	IMEI  string `json:"imei" validate:"omitempty,len=15,numeric"`
+	DeviceType string                `json:"device_type" validate:"omitempty,oneof=smartphone tablet tv computer home_electronics"`
+	Brand      string                `json:"brand" validate:"required,min=1,max=100"`
+	Model      string                `json:"model" validate:"required,min=1,max=200"`
+	Metadata   DeviceMetadataPayload `json:"metadata"`
+	IMEI       string                `json:"imei" validate:"omitempty,len=15,numeric"`
 
 	// Subscription fields
 	PlanID       string `json:"plan_id" validate:"required,uuid"`
@@ -70,7 +72,7 @@ func (h *PaymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	result, appErr := h.svc.Create(
 		r.Context(), ac,
-		req.Brand, req.Model, req.IMEI,
+		domain.NormalizeDeviceType(req.DeviceType), req.Brand, req.Model, req.IMEI, req.Metadata.ToDomain(),
 		planID, req.BillingCycle, idempKey,
 	)
 	if appErr != nil {

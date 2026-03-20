@@ -21,7 +21,14 @@ func NewDeviceService(repo domain.DeviceRepository, subRepo domain.SubscriptionR
 }
 
 // Create registers a new device for the authenticated user.
-func (s *DeviceService) Create(ctx context.Context, ac *auth.AuthContext, brand, model, imei string) (*domain.Device, *domain.AppError) {
+func (s *DeviceService) Create(ctx context.Context, ac *auth.AuthContext, deviceType domain.DeviceType, brand, model, imei string, metadata domain.DeviceMetadata) (*domain.Device, *domain.AppError) {
+	deviceType = domain.NormalizeDeviceType(string(deviceType))
+	metadata = metadata.Normalize()
+
+	if fields := domain.ValidateDeviceInput(nil, deviceType, brand, model, imei, metadata); len(fields) > 0 {
+		return nil, domain.ValidationFailed("validation failed", fields)
+	}
+
 	// Only check IMEI uniqueness when one is provided; IMEI can be added later via Update.
 	if imei != "" {
 		existing, err := s.repo.GetByIMEI(ctx, imei)
@@ -34,12 +41,14 @@ func (s *DeviceService) Create(ctx context.Context, ac *auth.AuthContext, brand,
 	}
 
 	device := &domain.Device{
-		OrgID:  ac.OrgID,
-		UserID: ac.UserID,
-		Brand:  brand,
-		Model:  model,
-		IMEI:   imei,
-		Status: domain.DeviceStatusPending,
+		OrgID:      ac.OrgID,
+		UserID:     ac.UserID,
+		DeviceType: deviceType,
+		Brand:      brand,
+		Model:      model,
+		Metadata:   metadata,
+		IMEI:       imei,
+		Status:     domain.DeviceStatusPending,
 	}
 
 	if err := s.repo.Create(ctx, device); err != nil {
@@ -71,7 +80,7 @@ func (s *DeviceService) Get(ctx context.Context, ac *auth.AuthContext, id uuid.U
 }
 
 // Update modifies a device, verifying ownership.
-func (s *DeviceService) Update(ctx context.Context, ac *auth.AuthContext, id uuid.UUID, brand, model, imei string) (*domain.Device, *domain.AppError) {
+func (s *DeviceService) Update(ctx context.Context, ac *auth.AuthContext, id uuid.UUID, deviceType domain.DeviceType, brand, model, imei string, metadata *domain.DeviceMetadata) (*domain.Device, *domain.AppError) {
 	device, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -80,8 +89,18 @@ func (s *DeviceService) Update(ctx context.Context, ac *auth.AuthContext, id uui
 		return nil, domain.NotFound("device")
 	}
 
+	if deviceType != "" {
+		device.DeviceType = domain.NormalizeDeviceType(string(deviceType))
+	}
 	device.Brand = brand
 	device.Model = model
+	if metadata != nil {
+		device.Metadata = metadata.Normalize()
+	}
+
+	if fields := domain.ValidateDeviceInput(nil, device.DeviceType, device.Brand, device.Model, imei, device.Metadata); len(fields) > 0 {
+		return nil, domain.ValidationFailed("validation failed", fields)
+	}
 
 	if imei != "" {
 		// Ensure no other device already holds this IMEI.
@@ -136,7 +155,7 @@ func (s *DeviceService) resolveDeviceStatus(ctx context.Context, device *domain.
 	}
 
 	if s.subRepo == nil {
-		if device.IMEI != "" {
+		if !device.RequiresIMEI() || device.IMEI != "" {
 			return device.Status, nil
 		}
 		return domain.DeviceStatusPending, nil
@@ -146,7 +165,7 @@ func (s *DeviceService) resolveDeviceStatus(ctx context.Context, device *domain.
 	if err != nil {
 		return domain.DeviceStatusPending, err
 	}
-	if sub != nil && sub.Status == domain.SubscriptionStatusActive && device.IMEI != "" {
+	if sub != nil && sub.Status == domain.SubscriptionStatusActive && (!device.RequiresIMEI() || device.IMEI != "") {
 		return domain.DeviceStatusActive, nil
 	}
 
