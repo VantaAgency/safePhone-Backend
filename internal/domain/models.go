@@ -232,6 +232,55 @@ type AdminStats struct {
 	TotalDevices      int            `json:"total_devices"`
 }
 
+type DashboardCoverageStatus string
+
+const (
+	DashboardCoverageStatusActive            DashboardCoverageStatus = "active"
+	DashboardCoverageStatusAwaitingPayment   DashboardCoverageStatus = "awaiting_payment"
+	DashboardCoverageStatusPendingActivation DashboardCoverageStatus = "pending_activation"
+	DashboardCoverageStatusPending           DashboardCoverageStatus = "pending"
+	DashboardCoverageStatusFailed            DashboardCoverageStatus = "failed"
+	DashboardCoverageStatusCancelled         DashboardCoverageStatus = "cancelled"
+	DashboardCoverageStatusExpired           DashboardCoverageStatus = "expired"
+	DashboardCoverageStatusRefunded          DashboardCoverageStatus = "refunded"
+	DashboardCoverageStatusSuspended         DashboardCoverageStatus = "suspended"
+)
+
+type MemberDashboardDevice struct {
+	Device          Device                   `json:"device"`
+	CoverageStatus  DashboardCoverageStatus  `json:"coverage_status"`
+	Subscription    *Subscription            `json:"subscription,omitempty"`
+	Payment         *Payment                 `json:"payment,omitempty"`
+}
+
+type MemberDashboardActiveSubscription struct {
+	Subscription Subscription `json:"subscription"`
+	Device       *Device      `json:"device,omitempty"`
+}
+
+type MemberDashboardSummary struct {
+	ActiveSubscriptionsCount int                                 `json:"active_subscriptions_count"`
+	DevicesCount             int                                 `json:"devices_count"`
+	ClaimsCount              int                                 `json:"claims_count"`
+	PaymentsCount            int                                 `json:"payments_count"`
+	PendingActivationDevices []Device                            `json:"pending_activation_devices"`
+	RecentDevices            []MemberDashboardDevice             `json:"recent_devices"`
+	RecentClaims             []Claim                             `json:"recent_claims"`
+	RecentPayments           []Payment                           `json:"recent_payments"`
+	ActiveSubscriptions      []MemberDashboardActiveSubscription `json:"active_subscriptions"`
+}
+
+type AdminDashboardOverview struct {
+	Stats         AdminStats      `json:"stats"`
+	RecentClaims  []Claim         `json:"recent_claims"`
+	RecentRepairs []RepairBooking `json:"recent_repairs"`
+}
+
+type PartnerDashboardOverview struct {
+	Profile       *PartnerProfile `json:"profile,omitempty"`
+	RecentClients []PartnerClient `json:"recent_clients"`
+}
+
 // AdminCustomer is a read-only view combining user + subscription + device data.
 type AdminCustomerSubscription struct {
 	ID                 string     `json:"id"`

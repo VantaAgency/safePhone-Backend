@@ -35,67 +35,65 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 		RevenueByProvider: make(map[string]int),
 	}
 
-	// Active subscribers
+	var revenueByProvider json.RawMessage
 	if err := r.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM subscriptions WHERE org_id = $1 AND status = 'active'
-	`, orgID).Scan(&stats.ActiveSubscribers); err != nil {
+		WITH revenue_by_provider AS (
+			SELECT COALESCE(
+				jsonb_object_agg(provider, amount_xof),
+				'{}'::jsonb
+			) AS payload
+			FROM (
+				SELECT provider, SUM(amount_xof)::int AS amount_xof
+				FROM payments
+				WHERE org_id = $1
+				  AND status = 'completed'
+				GROUP BY provider
+			) grouped_revenue
+		)
+		SELECT
+			(SELECT COUNT(*)::int FROM subscriptions WHERE org_id = $1 AND status = 'active'),
+			(
+				SELECT COALESCE(SUM(amount_xof), 0)::int
+				FROM payments
+				WHERE org_id = $1
+				  AND status = 'completed'
+				  AND paid_at >= date_trunc('month', now())
+			),
+			(
+				SELECT COUNT(*)::int
+				FROM claims
+				WHERE org_id = $1
+				  AND status NOT IN ('settled', 'rejected')
+			),
+			(SELECT payload FROM revenue_by_provider),
+			(
+				SELECT COUNT(*)::int
+				FROM users
+				WHERE org_id = $1
+				  AND deleted_at IS NULL
+				  AND role = 'member'
+			),
+			(
+				SELECT COUNT(*)::int
+				FROM devices
+				WHERE org_id = $1
+				  AND deleted_at IS NULL
+			)
+	`, orgID).Scan(
+		&stats.ActiveSubscribers,
+		&stats.MonthlyRevenueXOF,
+		&stats.OpenClaims,
+		&revenueByProvider,
+		&stats.TotalCustomers,
+		&stats.TotalDevices,
+	); err != nil {
 		return nil, err
 	}
 
-	// Monthly revenue (current calendar month)
-	if err := r.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(amount_xof), 0)
-		FROM payments
-		WHERE org_id = $1 AND status = 'completed'
-		  AND paid_at >= date_trunc('month', now())
-	`, orgID).Scan(&stats.MonthlyRevenueXOF); err != nil {
-		return nil, err
-	}
-
-	// Open claims
-	if err := r.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM claims
-		WHERE org_id = $1 AND status NOT IN ('settled', 'rejected')
-	`, orgID).Scan(&stats.OpenClaims); err != nil {
-		return nil, err
-	}
-
-	// Revenue by provider (all-time). DEXPAY sub-methods are only shown separately
-	// when they are explicitly confirmed by provider payloads.
-	rows, err := r.pool.Query(ctx, `
-		SELECT provider, COALESCE(SUM(amount_xof), 0)
-		FROM payments
-		WHERE org_id = $1 AND status = 'completed'
-		GROUP BY provider
-	`, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var provider string
-		var amount int
-		if err := rows.Scan(&provider, &amount); err != nil {
+	if len(revenueByProvider) > 0 {
+		if err := json.Unmarshal(revenueByProvider, &stats.RevenueByProvider); err != nil {
 			return nil, err
 		}
-		stats.RevenueByProvider[provider] = amount
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Total customers (non-admin, non-deleted)
-	if err := r.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM users WHERE org_id = $1 AND deleted_at IS NULL AND role = 'member'
-	`, orgID).Scan(&stats.TotalCustomers); err != nil {
-		return nil, err
-	}
-
-	// Total registered devices
-	if err := r.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM devices WHERE org_id = $1 AND deleted_at IS NULL
-	`, orgID).Scan(&stats.TotalDevices); err != nil {
-		return nil, err
 	}
 
 	return stats, nil

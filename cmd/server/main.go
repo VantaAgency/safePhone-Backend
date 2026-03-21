@@ -75,6 +75,7 @@ func main() {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(pool)
 	adminRepo := repository.NewAdminRepository(pool)
+	dashboardRepo := repository.NewDashboardRepository(pool)
 	planRepo := repository.NewPlanRepository(pool)
 	deviceRepo := repository.NewDeviceRepository(pool)
 	subRepo := repository.NewSubscriptionRepository(pool)
@@ -118,6 +119,7 @@ func main() {
 	// Initialize services
 	userSvc := service.NewUserService(userRepo)
 	adminSvc := service.NewAdminService(adminRepo)
+	dashboardSvc := service.NewDashboardService(dashboardRepo, adminRepo, partnerRepo)
 	planSvc := service.NewPlanService(planRepo, cfg.IsDevelopment())
 	deviceSvc := service.NewDeviceService(deviceRepo, subRepo)
 	subSvc := service.NewSubscriptionService(subRepo, planRepo, cfg.IsDevelopment())
@@ -132,6 +134,7 @@ func main() {
 	healthH := handler.NewHealthHandler(pool, redisClient)
 	userH := handler.NewUserHandler(userSvc)
 	adminH := handler.NewAdminHandler(adminSvc)
+	dashboardH := handler.NewDashboardHandler(dashboardSvc)
 	planH := handler.NewPlanHandler(planSvc)
 	deviceH := handler.NewDeviceHandler(deviceSvc)
 	subH := handler.NewSubscriptionHandler(subSvc)
@@ -207,6 +210,9 @@ func main() {
 			// Repairs
 			r.Get("/repairs/mine", repairH.ListMine)
 
+			// Dashboard summary
+			r.Get("/dashboard/summary", dashboardH.MemberSummary)
+
 			// Payments
 			r.Post("/payments", paymentH.Create)
 			r.Post("/payments/renew-subscription", paymentH.RenewSubscription)
@@ -220,6 +226,7 @@ func main() {
 				r.Use(auth.RequireRole(auth.RolePartner, auth.RoleAdmin))
 
 				r.Get("/profile", partnerH.GetProfile)
+				r.Get("/overview", dashboardH.PartnerOverview)
 				r.Get("/clients", partnerH.ListClients)
 				r.Post("/clients", partnerH.CreateClient)
 				r.Post("/clients/{id}/refresh-invitation", partnerH.RefreshInvitation)
@@ -234,6 +241,7 @@ func main() {
 				r.Use(auth.RequireRole(auth.RoleAdmin))
 
 				r.Get("/stats", adminH.Stats)
+				r.Get("/overview", dashboardH.AdminOverview)
 				r.Get("/customers", adminH.ListCustomers)
 				r.Get("/payments", adminH.ListPayments)
 				r.Get("/claims", claimH.AdminList)
