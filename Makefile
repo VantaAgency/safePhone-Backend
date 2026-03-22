@@ -1,4 +1,4 @@
-.PHONY: dev build migrate-up migrate-down migrate-create sqlc test lint docker-up docker-down promote-admin demote-admin
+.PHONY: dev build migrate-up migrate-down migrate-create sqlc test lint docker-up docker-down promote-admin demote-admin promote-employee demote-employee
 
 -include .env
 export
@@ -48,6 +48,22 @@ promote-admin:
 
 demote-admin:
 	@test -n "$(EMAIL)" || (echo "Usage: make demote-admin EMAIL=you@example.com" && exit 1)
+	@echo "Demoting $(EMAIL) to member..."
+	psql "$(DATABASE_URL)" -c " \
+		UPDATE users SET role = 'member', updated_at = now() WHERE email = '$(EMAIL)' AND deleted_at IS NULL; \
+		UPDATE \"user\" SET role = 'member', \"updatedAt\" = now() WHERE email = '$(EMAIL)';"
+	@echo "Done. Demoted $(EMAIL) to member."
+
+promote-employee:
+	@test -n "$(EMAIL)" || (echo "Usage: make promote-employee EMAIL=you@example.com" && exit 1)
+	@echo "Promoting $(EMAIL) to employee..."
+	psql "$(DATABASE_URL)" -c " \
+		UPDATE users SET role = 'employee', updated_at = now() WHERE email = '$(EMAIL)' AND deleted_at IS NULL; \
+		UPDATE \"user\" SET role = 'employee', \"updatedAt\" = now() WHERE email = '$(EMAIL)';"
+	@echo "Done. User must log out and back in for the role change to take effect."
+
+demote-employee:
+	@test -n "$(EMAIL)" || (echo "Usage: make demote-employee EMAIL=you@example.com" && exit 1)
 	@echo "Demoting $(EMAIL) to member..."
 	psql "$(DATABASE_URL)" -c " \
 		UPDATE users SET role = 'member', updated_at = now() WHERE email = '$(EMAIL)' AND deleted_at IS NULL; \

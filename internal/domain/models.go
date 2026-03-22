@@ -247,10 +247,10 @@ const (
 )
 
 type MemberDashboardDevice struct {
-	Device          Device                   `json:"device"`
-	CoverageStatus  DashboardCoverageStatus  `json:"coverage_status"`
-	Subscription    *Subscription            `json:"subscription,omitempty"`
-	Payment         *Payment                 `json:"payment,omitempty"`
+	Device         Device                  `json:"device"`
+	CoverageStatus DashboardCoverageStatus `json:"coverage_status"`
+	Subscription   *Subscription           `json:"subscription,omitempty"`
+	Payment        *Payment                `json:"payment,omitempty"`
 }
 
 type MemberDashboardActiveSubscription struct {
@@ -274,6 +274,181 @@ type AdminDashboardOverview struct {
 	Stats         AdminStats      `json:"stats"`
 	RecentClaims  []Claim         `json:"recent_claims"`
 	RecentRepairs []RepairBooking `json:"recent_repairs"`
+}
+
+type OperationalEntityType string
+
+const (
+	OperationalEntityTypeClient       OperationalEntityType = "client"
+	OperationalEntityTypeSubscription OperationalEntityType = "subscription"
+	OperationalEntityTypeClaim        OperationalEntityType = "claim"
+	OperationalEntityTypeRepair       OperationalEntityType = "repair"
+)
+
+type FollowUpStatus string
+
+const (
+	FollowUpStatusToContact        FollowUpStatus = "to_contact"
+	FollowUpStatusContacted        FollowUpStatus = "contacted"
+	FollowUpStatusAwaitingResponse FollowUpStatus = "awaiting_response"
+	FollowUpStatusResolved         FollowUpStatus = "resolved"
+)
+
+type PaymentFollowUpContext string
+
+const (
+	PaymentFollowUpContextFirstPayment PaymentFollowUpContext = "first_payment"
+	PaymentFollowUpContextRenewal      PaymentFollowUpContext = "renewal"
+)
+
+type OperationalFollowUp struct {
+	ID            uuid.UUID             `json:"id"`
+	OrgID         uuid.UUID             `json:"org_id"`
+	EntityType    OperationalEntityType `json:"entity_type"`
+	EntityID      uuid.UUID             `json:"entity_id"`
+	Reason        *string               `json:"reason,omitempty"`
+	Status        FollowUpStatus        `json:"status"`
+	NextAction    *string               `json:"next_action,omitempty"`
+	LastContactAt *time.Time            `json:"last_contact_at,omitempty"`
+	CreatedBy     *uuid.UUID            `json:"created_by,omitempty"`
+	UpdatedBy     *uuid.UUID            `json:"updated_by,omitempty"`
+	CreatedAt     time.Time             `json:"created_at"`
+	UpdatedAt     time.Time             `json:"updated_at"`
+}
+
+type OperationalNote struct {
+	ID            uuid.UUID             `json:"id"`
+	OrgID         uuid.UUID             `json:"org_id"`
+	EntityType    OperationalEntityType `json:"entity_type"`
+	EntityID      uuid.UUID             `json:"entity_id"`
+	Body          string                `json:"body"`
+	CreatedBy     uuid.UUID             `json:"created_by"`
+	CreatedByName *string               `json:"created_by_name,omitempty"`
+	CreatedAt     time.Time             `json:"created_at"`
+}
+
+type EmployeeOverviewMetrics struct {
+	UnpaidSubscriptionsCount    int `json:"unpaid_subscriptions_count"`
+	PendingPaymentsCount        int `json:"pending_payments_count"`
+	FailedPaymentsCount         int `json:"failed_payments_count"`
+	ClientsNeedingFollowUpCount int `json:"clients_needing_follow_up_count"`
+	PendingClaimsCount          int `json:"pending_claims_count"`
+	RepairsInProgressCount      int `json:"repairs_in_progress_count"`
+	OverdueRepairsCount         int `json:"overdue_repairs_count"`
+	PendingActivationCount      int `json:"pending_activation_count"`
+	MissingIMEICount            int `json:"missing_imei_count"`
+	UrgentTasksCount            int `json:"urgent_tasks_count"`
+}
+
+type EmployeeClientListItem struct {
+	ID                      uuid.UUID               `json:"id"`
+	FullName                string                  `json:"full_name"`
+	Email                   string                  `json:"email"`
+	Phone                   *string                 `json:"phone,omitempty"`
+	DeviceCount             int                     `json:"device_count"`
+	ActiveSubscriptionCount int                     `json:"active_subscription_count"`
+	MissingIMEICount        int                     `json:"missing_imei_count"`
+	PendingClaimsCount      int                     `json:"pending_claims_count"`
+	OpenRepairsCount        int                     `json:"open_repairs_count"`
+	LatestCoverageStatus    DashboardCoverageStatus `json:"latest_coverage_status"`
+	PartnerStoreName        *string                 `json:"partner_store_name,omitempty"`
+	RequiresAttention       bool                    `json:"requires_attention"`
+	FollowUp                *OperationalFollowUp    `json:"follow_up,omitempty"`
+}
+
+type EmployeeClientDeviceCoverage struct {
+	Device           Device                  `json:"device"`
+	CoverageStatus   DashboardCoverageStatus `json:"coverage_status"`
+	Subscription     *Subscription           `json:"subscription,omitempty"`
+	Payment          *Payment                `json:"payment,omitempty"`
+	PlanNameFR       *string                 `json:"plan_name_fr,omitempty"`
+	PlanNameEN       *string                 `json:"plan_name_en,omitempty"`
+	PartnerStoreName *string                 `json:"partner_store_name,omitempty"`
+}
+
+type EmployeePaymentFollowUpItem struct {
+	UserID            uuid.UUID               `json:"user_id"`
+	ClientName        string                  `json:"client_name"`
+	ClientEmail       string                  `json:"client_email"`
+	ClientPhone       *string                 `json:"client_phone,omitempty"`
+	Device            Device                  `json:"device"`
+	Subscription      *Subscription           `json:"subscription,omitempty"`
+	Payment           *Payment                `json:"payment,omitempty"`
+	CoverageStatus    DashboardCoverageStatus `json:"coverage_status"`
+	PlanNameFR        *string                 `json:"plan_name_fr,omitempty"`
+	PlanNameEN        *string                 `json:"plan_name_en,omitempty"`
+	PaymentContext    PaymentFollowUpContext  `json:"payment_context"`
+	RequiresAttention bool                    `json:"requires_attention"`
+	AttentionReason   string                  `json:"attention_reason"`
+	PartnerStoreName  *string                 `json:"partner_store_name,omitempty"`
+	FollowUp          *OperationalFollowUp    `json:"follow_up,omitempty"`
+}
+
+type EmployeeClaimDetail struct {
+	Claim              Claim                   `json:"claim"`
+	ClientName         string                  `json:"client_name"`
+	ClientEmail        string                  `json:"client_email"`
+	ClientPhone        *string                 `json:"client_phone,omitempty"`
+	DeviceBrand        string                  `json:"device_brand"`
+	DeviceModel        string                  `json:"device_model"`
+	DeviceType         DeviceType              `json:"device_type"`
+	SubscriptionStatus SubscriptionStatus      `json:"subscription_status"`
+	CoverageStatus     DashboardCoverageStatus `json:"coverage_status"`
+	PlanNameFR         *string                 `json:"plan_name_fr,omitempty"`
+	PlanNameEN         *string                 `json:"plan_name_en,omitempty"`
+	PartnerStoreName   *string                 `json:"partner_store_name,omitempty"`
+	FollowUp           *OperationalFollowUp    `json:"follow_up,omitempty"`
+	Notes              []OperationalNote       `json:"notes"`
+}
+
+type EmployeeRepairDetail struct {
+	Repair           RepairBooking        `json:"repair"`
+	ClientID         *uuid.UUID           `json:"client_id,omitempty"`
+	ClientEmail      *string              `json:"client_email,omitempty"`
+	PartnerStoreName *string              `json:"partner_store_name,omitempty"`
+	FollowUp         *OperationalFollowUp `json:"follow_up,omitempty"`
+	Notes            []OperationalNote    `json:"notes"`
+}
+
+type EmployeeTaskItem struct {
+	ID               string                `json:"id"`
+	EntityType       OperationalEntityType `json:"entity_type"`
+	EntityID         uuid.UUID             `json:"entity_id"`
+	Title            string                `json:"title"`
+	Description      string                `json:"description"`
+	Reason           string                `json:"reason"`
+	Priority         string                `json:"priority"`
+	ClientName       string                `json:"client_name"`
+	ClientEmail      *string               `json:"client_email,omitempty"`
+	ClientPhone      *string               `json:"client_phone,omitempty"`
+	PartnerStoreName *string               `json:"partner_store_name,omitempty"`
+	Status           string                `json:"status"`
+	FollowUpStatus   *FollowUpStatus       `json:"follow_up_status,omitempty"`
+	NextAction       *string               `json:"next_action,omitempty"`
+	LastContactAt    *time.Time            `json:"last_contact_at,omitempty"`
+	UpdatedAt        time.Time             `json:"updated_at"`
+}
+
+type EmployeeClientDetail struct {
+	ID               uuid.UUID                      `json:"id"`
+	FullName         string                         `json:"full_name"`
+	Email            string                         `json:"email"`
+	Phone            *string                        `json:"phone,omitempty"`
+	PartnerStoreName *string                        `json:"partner_store_name,omitempty"`
+	Devices          []EmployeeClientDeviceCoverage `json:"devices"`
+	PaymentFollowUps []EmployeePaymentFollowUpItem  `json:"payment_follow_ups"`
+	Claims           []EmployeeClaimDetail          `json:"claims"`
+	Repairs          []EmployeeRepairDetail         `json:"repairs"`
+	FollowUp         *OperationalFollowUp           `json:"follow_up,omitempty"`
+	Notes            []OperationalNote              `json:"notes"`
+}
+
+type EmployeeDashboardOverview struct {
+	Metrics          EmployeeOverviewMetrics       `json:"metrics"`
+	PaymentFollowUps []EmployeePaymentFollowUpItem `json:"payment_follow_ups"`
+	PendingClaims    []EmployeeClaimDetail         `json:"pending_claims"`
+	ActiveRepairs    []EmployeeRepairDetail        `json:"active_repairs"`
+	UrgentTasks      []EmployeeTaskItem            `json:"urgent_tasks"`
 }
 
 type PartnerDashboardOverview struct {

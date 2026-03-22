@@ -75,6 +75,7 @@ func main() {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(pool)
 	adminRepo := repository.NewAdminRepository(pool)
+	employeeRepo := repository.NewEmployeeRepository(pool)
 	dashboardRepo := repository.NewDashboardRepository(pool)
 	planRepo := repository.NewPlanRepository(pool)
 	deviceRepo := repository.NewDeviceRepository(pool)
@@ -129,11 +130,13 @@ func main() {
 	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, pool)
 	partnerSvc := service.NewPartnerService(partnerRepo, cfg.FrontendURL)
 	repairSvc := service.NewRepairService(repairRepo)
+	employeeSvc := service.NewEmployeeService(employeeRepo, userRepo, subRepo, claimRepo, repairSvc)
 
 	// Initialize handlers
 	healthH := handler.NewHealthHandler(pool, redisClient)
 	userH := handler.NewUserHandler(userSvc)
 	adminH := handler.NewAdminHandler(adminSvc)
+	employeeH := handler.NewEmployeeHandler(employeeSvc)
 	dashboardH := handler.NewDashboardHandler(dashboardSvc)
 	planH := handler.NewPlanHandler(planSvc)
 	deviceH := handler.NewDeviceHandler(deviceSvc)
@@ -256,6 +259,28 @@ func main() {
 				r.Get("/partners/{id}/commissions", partnerH.ListAdminPartnerCommissions)
 				r.Get("/partner-applications", partnerAppH.AdminList)
 				r.Put("/partner-applications/{id}/review", partnerAppH.AdminReview)
+			})
+
+			// Employee routes
+			r.Route("/employee", func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleEmployee))
+
+				r.Get("/overview", employeeH.Overview)
+				r.Get("/clients", employeeH.ListClients)
+				r.Get("/clients/{id}", employeeH.GetClient)
+				r.Get("/payment-follow-ups", employeeH.ListPaymentFollowUps)
+				r.Get("/claims", employeeH.ListClaims)
+				r.Get("/claims/{id}", employeeH.GetClaim)
+				r.Patch("/claims/{id}/status", employeeH.UpdateClaimStatus)
+				r.Get("/repairs", employeeH.ListRepairs)
+				r.Get("/repairs/{id}", employeeH.GetRepair)
+				r.Put("/repairs/{id}/status", employeeH.UpdateRepairStatus)
+				r.Put("/repairs/{id}/amount", employeeH.UpdateRepairAmount)
+				r.Get("/tasks", employeeH.ListTasks)
+				r.Get("/follow-ups", employeeH.GetFollowUp)
+				r.Put("/follow-ups", employeeH.UpsertFollowUp)
+				r.Get("/notes", employeeH.ListNotes)
+				r.Post("/notes", employeeH.CreateNote)
 			})
 		})
 	})

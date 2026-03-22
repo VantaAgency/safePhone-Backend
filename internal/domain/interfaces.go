@@ -72,6 +72,23 @@ type AdminRepository interface {
 	ListPayments(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]AdminPayment, error)
 }
 
+// EmployeeRepository provides operational read models and workflow persistence for employees.
+type EmployeeRepository interface {
+	GetOverviewMetrics(ctx context.Context, orgID uuid.UUID) (*EmployeeOverviewMetrics, error)
+	ListClients(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]EmployeeClientListItem, error)
+	GetClient(ctx context.Context, orgID, userID uuid.UUID) (*EmployeeClientDetail, error)
+	ListPaymentFollowUps(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]EmployeePaymentFollowUpItem, error)
+	ListClaims(ctx context.Context, orgID uuid.UUID, status *string, search string, limit, offset int) ([]EmployeeClaimDetail, error)
+	GetClaim(ctx context.Context, orgID, claimID uuid.UUID) (*EmployeeClaimDetail, error)
+	ListRepairs(ctx context.Context, orgID uuid.UUID, status *string, search string, limit, offset int) ([]EmployeeRepairDetail, error)
+	GetRepair(ctx context.Context, orgID, repairID uuid.UUID) (*EmployeeRepairDetail, error)
+	ListTasks(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]EmployeeTaskItem, error)
+	GetFollowUp(ctx context.Context, orgID uuid.UUID, entityType OperationalEntityType, entityID uuid.UUID) (*OperationalFollowUp, error)
+	UpsertFollowUp(ctx context.Context, followUp *OperationalFollowUp) error
+	ListNotes(ctx context.Context, orgID uuid.UUID, entityType OperationalEntityType, entityID uuid.UUID, limit, offset int) ([]OperationalNote, error)
+	CreateNote(ctx context.Context, note *OperationalNote) error
+}
+
 // PaymentRepository defines data access for payments.
 type PaymentRepository interface {
 	Create(ctx context.Context, payment *Payment) error

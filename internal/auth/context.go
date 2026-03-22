@@ -12,10 +12,11 @@ import (
 type Role string
 
 const (
-	RoleAdmin   Role = "admin"
-	RoleMember  Role = "member"
-	RolePartner Role = "partner"
-	RoleViewer  Role = "viewer"
+	RoleAdmin    Role = "admin"
+	RoleEmployee Role = "employee"
+	RoleMember   Role = "member"
+	RolePartner  Role = "partner"
+	RoleViewer   Role = "viewer"
 )
 
 // AuthContext holds the authenticated user's identity extracted from a JWT.
