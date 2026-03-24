@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/cherif-safephone/safephone-backend/internal/auth"
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 )
@@ -42,4 +44,58 @@ func (s *AdminService) ListPayments(ctx context.Context, ac *auth.AuthContext, l
 		return nil, domain.InternalError(err)
 	}
 	return payments, nil
+}
+
+// ListEmployees returns employee records with workload context for the admin dashboard.
+func (s *AdminService) ListEmployees(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	search string,
+	status *domain.EmployeeAccountStatus,
+	sort string,
+	limit,
+	offset int,
+) ([]domain.AdminEmployeeListItem, *domain.AppError) {
+	items, err := s.repo.ListEmployees(ctx, ac.OrgID, search, status, sort, limit, offset)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	return items, nil
+}
+
+// GetEmployee returns a single employee detail payload.
+func (s *AdminService) GetEmployee(ctx context.Context, ac *auth.AuthContext, userID uuid.UUID) (*domain.AdminEmployeeDetail, *domain.AppError) {
+	item, err := s.repo.GetEmployee(ctx, ac.OrgID, userID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if item == nil {
+		return nil, domain.NotFound("employee")
+	}
+	return item, nil
+}
+
+// UpdateEmployeeStatus updates an employee access status.
+func (s *AdminService) UpdateEmployeeStatus(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	userID uuid.UUID,
+	status domain.EmployeeAccountStatus,
+	suspendedReason *string,
+) (*domain.EmployeeProfile, *domain.AppError) {
+	switch status {
+	case domain.EmployeeAccountStatusActive, domain.EmployeeAccountStatusInactive, domain.EmployeeAccountStatusSuspended:
+	default:
+		return nil, domain.BadRequest("invalid employee status")
+	}
+
+	profile, err := s.repo.UpdateEmployeeStatus(ctx, ac.OrgID, userID, ac.UserID, status, suspendedReason)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if profile == nil {
+		return nil, domain.NotFound("employee")
+	}
+
+	return profile, nil
 }

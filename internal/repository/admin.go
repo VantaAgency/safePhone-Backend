@@ -3,9 +3,12 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
@@ -266,4 +269,462 @@ func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, lim
 		payments = []domain.AdminPayment{}
 	}
 	return payments, rows.Err()
+}
+
+// ListEmployees returns admin employee summaries with workload context.
+func (r *AdminRepository) ListEmployees(
+	ctx context.Context,
+	orgID uuid.UUID,
+	search string,
+	status *domain.EmployeeAccountStatus,
+	sort string,
+	limit,
+	offset int,
+) ([]domain.AdminEmployeeListItem, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	sortKey := "recent_activity"
+	if strings.EqualFold(sort, "joined") {
+		sortKey = "joined"
+	}
+
+	args := []any{orgID, strings.TrimSpace(search)}
+	statusIndex := 0
+	if status != nil {
+		args = append(args, *status)
+		statusIndex = len(args)
+	}
+	args = append(args, limit, offset)
+	limitIndex := len(args) - 1
+	offsetIndex := len(args)
+
+	query := `
+		WITH follow_up_owners AS (
+			SELECT
+				COALESCE(f.updated_by, f.created_by) AS owner_id,
+				f.entity_type,
+				f.entity_id,
+				f.updated_at
+			FROM operational_follow_ups f
+			WHERE f.org_id = $1
+			  AND f.status != 'resolved'
+			  AND COALESCE(f.updated_by, f.created_by) IS NOT NULL
+		),
+		client_follows AS (
+			SELECT owner_id, COUNT(DISTINCT client_id)::int AS clients_followed_count
+			FROM (
+				SELECT owner_id, entity_id AS client_id
+				FROM follow_up_owners
+				WHERE entity_type = 'client'
+
+				UNION ALL
+
+				SELECT fo.owner_id, s.user_id AS client_id
+				FROM follow_up_owners fo
+				JOIN subscriptions s
+				  ON fo.entity_type = 'subscription'
+				 AND s.id = fo.entity_id
+
+				UNION ALL
+
+				SELECT fo.owner_id, c.user_id AS client_id
+				FROM follow_up_owners fo
+				JOIN claims c
+				  ON fo.entity_type = 'claim'
+				 AND c.id = fo.entity_id
+			) mapped_clients
+			GROUP BY owner_id
+		),
+		claim_counts AS (
+			SELECT fo.owner_id, COUNT(*)::int AS active_claims_count
+			FROM follow_up_owners fo
+			JOIN claims c
+			  ON fo.entity_type = 'claim'
+			 AND c.id = fo.entity_id
+			WHERE c.status IN ('pending', 'review')
+			GROUP BY fo.owner_id
+		),
+		repair_counts AS (
+			SELECT fo.owner_id, COUNT(*)::int AS active_repairs_count
+			FROM follow_up_owners fo
+			JOIN repair_bookings rb
+			  ON fo.entity_type = 'repair'
+			 AND rb.id = fo.entity_id
+			WHERE rb.status IN ('pending', 'accepted', 'scheduled', 'in_progress')
+			GROUP BY fo.owner_id
+		),
+		follow_up_counts AS (
+			SELECT owner_id, COUNT(*)::int AS open_follow_ups_count, MAX(updated_at) AS last_follow_up_at
+			FROM follow_up_owners
+			GROUP BY owner_id
+		),
+		note_activity AS (
+			SELECT created_by AS owner_id, MAX(created_at) AS last_note_at
+			FROM operational_notes
+			WHERE org_id = $1
+			GROUP BY created_by
+		),
+		last_login AS (
+			SELECT "userId" AS better_auth_id, MAX("createdAt") AS last_login_at
+			FROM "session"
+			GROUP BY "userId"
+		)
+		SELECT
+			u.id::text,
+			u.better_auth_id,
+			u.full_name,
+			u.email,
+			u.phone,
+			u.role,
+			COALESCE(ep.status, 'active') AS status,
+			ep.suspended_reason,
+			u.created_at,
+			COALESCE(cf.clients_followed_count, 0),
+			COALESCE(cc.active_claims_count, 0),
+			COALESCE(rc.active_repairs_count, 0),
+			COALESCE(fc.open_follow_ups_count, 0),
+			NULLIF(
+				GREATEST(
+					COALESCE(fc.last_follow_up_at, 'epoch'::timestamptz),
+					COALESCE(na.last_note_at, 'epoch'::timestamptz)
+				),
+				'epoch'::timestamptz
+			) AS last_activity_at,
+			ll.last_login_at
+		FROM users u
+		LEFT JOIN employee_profiles ep
+		  ON ep.user_id = u.id
+		 AND ep.org_id = u.org_id
+		LEFT JOIN client_follows cf ON cf.owner_id = u.id
+		LEFT JOIN claim_counts cc ON cc.owner_id = u.id
+		LEFT JOIN repair_counts rc ON rc.owner_id = u.id
+		LEFT JOIN follow_up_counts fc ON fc.owner_id = u.id
+		LEFT JOIN note_activity na ON na.owner_id = u.id
+		LEFT JOIN last_login ll ON ll.better_auth_id = u.better_auth_id
+		WHERE u.org_id = $1
+		  AND u.deleted_at IS NULL
+		  AND u.role = 'employee'
+		  AND (
+			$2 = ''
+			OR lower(u.full_name) LIKE '%' || lower($2) || '%'
+			OR lower(u.email) LIKE '%' || lower($2) || '%'
+			OR COALESCE(u.phone, '') LIKE '%' || $2 || '%'
+		  )
+	`
+	if status != nil {
+		query += ` AND COALESCE(ep.status, 'active') = $` + strconv.Itoa(statusIndex)
+	}
+
+	switch sortKey {
+	case "joined":
+		query += `
+			ORDER BY u.created_at DESC, u.full_name ASC
+		`
+	default:
+		query += `
+			ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC, u.full_name ASC
+		`
+	}
+
+	query += `
+		LIMIT $` + strconv.Itoa(limitIndex) + ` OFFSET $` + strconv.Itoa(offsetIndex)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]domain.AdminEmployeeListItem, 0)
+	for rows.Next() {
+		var item domain.AdminEmployeeListItem
+		if err := rows.Scan(
+			&item.ID,
+			&item.BetterAuthID,
+			&item.FullName,
+			&item.Email,
+			&item.Phone,
+			&item.Role,
+			&item.Status,
+			&item.SuspendedReason,
+			&item.JoinedAt,
+			&item.Workload.ClientsFollowedCount,
+			&item.Workload.ActiveClaimsCount,
+			&item.Workload.ActiveRepairsCount,
+			&item.Workload.OpenFollowUpsCount,
+			&item.Workload.LastActivityAt,
+			&item.Workload.LastLoginAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	if items == nil {
+		return []domain.AdminEmployeeListItem{}, nil
+	}
+	return items, rows.Err()
+}
+
+// GetEmployee returns a detailed employee management payload.
+func (r *AdminRepository) GetEmployee(ctx context.Context, orgID, userID uuid.UUID) (*domain.AdminEmployeeDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	item := &domain.AdminEmployeeDetail{
+		RecentActivity:    []domain.AdminEmployeeActivityItem{},
+		PermissionSummary: []string{},
+	}
+
+	err := r.pool.QueryRow(ctx, `
+		WITH follow_up_owners AS (
+			SELECT
+				COALESCE(f.updated_by, f.created_by) AS owner_id,
+				f.entity_type,
+				f.entity_id,
+				f.updated_at
+			FROM operational_follow_ups f
+			WHERE f.org_id = $1
+			  AND f.status != 'resolved'
+			  AND COALESCE(f.updated_by, f.created_by) = $2
+		),
+		client_follows AS (
+			SELECT COUNT(DISTINCT client_id)::int AS clients_followed_count
+			FROM (
+				SELECT entity_id AS client_id
+				FROM follow_up_owners
+				WHERE entity_type = 'client'
+
+				UNION ALL
+
+				SELECT s.user_id AS client_id
+				FROM follow_up_owners fo
+				JOIN subscriptions s
+				  ON fo.entity_type = 'subscription'
+				 AND s.id = fo.entity_id
+
+				UNION ALL
+
+				SELECT c.user_id AS client_id
+				FROM follow_up_owners fo
+				JOIN claims c
+				  ON fo.entity_type = 'claim'
+				 AND c.id = fo.entity_id
+			) mapped_clients
+		),
+		claim_counts AS (
+			SELECT COUNT(*)::int AS active_claims_count
+			FROM follow_up_owners fo
+			JOIN claims c
+			  ON fo.entity_type = 'claim'
+			 AND c.id = fo.entity_id
+			WHERE c.status IN ('pending', 'review')
+		),
+		repair_counts AS (
+			SELECT COUNT(*)::int AS active_repairs_count
+			FROM follow_up_owners fo
+			JOIN repair_bookings rb
+			  ON fo.entity_type = 'repair'
+			 AND rb.id = fo.entity_id
+			WHERE rb.status IN ('pending', 'accepted', 'scheduled', 'in_progress')
+		),
+		follow_up_counts AS (
+			SELECT COUNT(*)::int AS open_follow_ups_count, MAX(updated_at) AS last_follow_up_at
+			FROM follow_up_owners
+		),
+		note_activity AS (
+			SELECT MAX(created_at) AS last_note_at
+			FROM operational_notes
+			WHERE org_id = $1
+			  AND created_by = $2
+		),
+		last_login AS (
+			SELECT MAX(s."createdAt") AS last_login_at
+			FROM users u
+			LEFT JOIN "session" s ON s."userId" = u.better_auth_id
+			WHERE u.id = $2
+		)
+		SELECT
+			u.id::text,
+			u.better_auth_id,
+			u.full_name,
+			u.email,
+			u.phone,
+			u.role,
+			COALESCE(ep.status, 'active') AS status,
+			ep.suspended_reason,
+			u.created_at,
+			u.updated_at,
+			COALESCE((SELECT clients_followed_count FROM client_follows), 0),
+			COALESCE((SELECT active_claims_count FROM claim_counts), 0),
+			COALESCE((SELECT active_repairs_count FROM repair_counts), 0),
+			COALESCE((SELECT open_follow_ups_count FROM follow_up_counts), 0),
+			NULLIF(
+				GREATEST(
+					COALESCE((SELECT last_follow_up_at FROM follow_up_counts), 'epoch'::timestamptz),
+					COALESCE((SELECT last_note_at FROM note_activity), 'epoch'::timestamptz)
+				),
+				'epoch'::timestamptz
+			) AS last_activity_at,
+			(SELECT last_login_at FROM last_login)
+		FROM users u
+		LEFT JOIN employee_profiles ep
+		  ON ep.user_id = u.id
+		 AND ep.org_id = u.org_id
+		WHERE u.org_id = $1
+		  AND u.id = $2
+		  AND u.role = 'employee'
+		  AND u.deleted_at IS NULL
+	`, orgID, userID).Scan(
+		&item.ID,
+		&item.BetterAuthID,
+		&item.FullName,
+		&item.Email,
+		&item.Phone,
+		&item.Role,
+		&item.Status,
+		&item.SuspendedReason,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+		&item.Workload.ClientsFollowedCount,
+		&item.Workload.ActiveClaimsCount,
+		&item.Workload.ActiveRepairsCount,
+		&item.Workload.OpenFollowUpsCount,
+		&item.Workload.LastActivityAt,
+		&item.Workload.LastLoginAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	item.WorkspaceAccess = item.Status == domain.EmployeeAccountStatusActive
+	item.PermissionSummary = employeePermissionSummary()
+
+	activityRows, err := r.pool.Query(ctx, `
+		SELECT kind, entity_type, entity_id, description, occurred_at
+		FROM (
+			SELECT
+				'follow_up' AS kind,
+				f.entity_type,
+				f.entity_id::text AS entity_id,
+				COALESCE(f.reason, f.next_action, 'Operational follow-up updated') AS description,
+				f.updated_at AS occurred_at
+			FROM operational_follow_ups f
+			WHERE f.org_id = $1
+			  AND COALESCE(f.updated_by, f.created_by) = $2
+
+			UNION ALL
+
+			SELECT
+				'note' AS kind,
+				n.entity_type,
+				n.entity_id::text AS entity_id,
+				LEFT(n.body, 240) AS description,
+				n.created_at AS occurred_at
+			FROM operational_notes n
+			WHERE n.org_id = $1
+			  AND n.created_by = $2
+		) activity
+		ORDER BY occurred_at DESC
+		LIMIT 10
+	`, orgID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer activityRows.Close()
+
+	for activityRows.Next() {
+		var activity domain.AdminEmployeeActivityItem
+		if err := activityRows.Scan(
+			&activity.Kind,
+			&activity.EntityType,
+			&activity.EntityID,
+			&activity.Description,
+			&activity.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		item.RecentActivity = append(item.RecentActivity, activity)
+	}
+	if err := activityRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return item, nil
+}
+
+// UpdateEmployeeStatus updates the employee profile status for a SafePhone employee user.
+func (r *AdminRepository) UpdateEmployeeStatus(
+	ctx context.Context,
+	orgID, userID, updatedBy uuid.UUID,
+	status domain.EmployeeAccountStatus,
+	suspendedReason *string,
+) (*domain.EmployeeProfile, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var profile domain.EmployeeProfile
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO employee_profiles (
+			user_id,
+			org_id,
+			status,
+			suspended_reason,
+			created_by,
+			updated_by
+		)
+		SELECT
+			u.id,
+			u.org_id,
+			$4::varchar(20),
+			CASE WHEN $4::text = 'suspended' THEN $5::text ELSE NULL END,
+			$3,
+			$3
+		FROM users u
+		WHERE u.id = $2
+		  AND u.org_id = $1
+		  AND u.role = 'employee'
+		  AND u.deleted_at IS NULL
+		ON CONFLICT (user_id) DO UPDATE
+		SET status = EXCLUDED.status,
+			suspended_reason = EXCLUDED.suspended_reason,
+			updated_by = EXCLUDED.updated_by,
+			updated_at = now()
+		RETURNING user_id, org_id, status, suspended_reason, created_by, updated_by, created_at, updated_at
+	`, orgID, userID, updatedBy, status, suspendedReason).Scan(
+		&profile.UserID,
+		&profile.OrgID,
+		&profile.Status,
+		&profile.SuspendedReason,
+		&profile.CreatedBy,
+		&profile.UpdatedBy,
+		&profile.CreatedAt,
+		&profile.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &profile, nil
+}
+
+func employeePermissionSummary() []string {
+	return []string{
+		"Employee workspace access",
+		"Client follow-up",
+		"Claim processing",
+		"Repair management",
+		"Payment follow-up",
+	}
 }

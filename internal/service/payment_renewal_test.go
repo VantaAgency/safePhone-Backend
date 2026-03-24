@@ -468,6 +468,9 @@ func (s *stubRenewalUserRepository) Update(_ context.Context, _ *domain.User) er
 func (s *stubRenewalUserRepository) UpdateRole(_ context.Context, _ uuid.UUID, _ string) error {
 	return nil
 }
+func (s *stubRenewalUserRepository) GetEmployeeProfile(_ context.Context, _, _ uuid.UUID) (*domain.EmployeeProfile, error) {
+	return nil, nil
+}
 
 type stubRenewalDeviceRepository struct {
 	devices map[uuid.UUID]*domain.Device

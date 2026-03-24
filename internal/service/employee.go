@@ -41,6 +41,10 @@ func NewEmployeeService(
 
 // GetOverview returns the employee workspace overview payload.
 func (s *EmployeeService) GetOverview(ctx context.Context, ac *auth.AuthContext) (*domain.EmployeeDashboardOverview, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	metrics, err := s.repo.GetOverviewMetrics(ctx, ac.OrgID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -82,6 +86,10 @@ func (s *EmployeeService) GetOverview(ctx context.Context, ac *auth.AuthContext)
 
 // ListClients returns employee-facing client summaries.
 func (s *EmployeeService) ListClients(ctx context.Context, ac *auth.AuthContext, search string, limit, offset int) ([]domain.EmployeeClientListItem, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	items, err := s.repo.ListClients(ctx, ac.OrgID, search, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -91,6 +99,10 @@ func (s *EmployeeService) ListClients(ctx context.Context, ac *auth.AuthContext,
 
 // GetClient returns a single client detail for employees.
 func (s *EmployeeService) GetClient(ctx context.Context, ac *auth.AuthContext, userID uuid.UUID) (*domain.EmployeeClientDetail, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	item, err := s.repo.GetClient(ctx, ac.OrgID, userID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -103,6 +115,10 @@ func (s *EmployeeService) GetClient(ctx context.Context, ac *auth.AuthContext, u
 
 // ListPaymentFollowUps returns payment and activation follow-up rows.
 func (s *EmployeeService) ListPaymentFollowUps(ctx context.Context, ac *auth.AuthContext, search string, limit, offset int) ([]domain.EmployeePaymentFollowUpItem, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	items, err := s.repo.ListPaymentFollowUps(ctx, ac.OrgID, search, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -112,6 +128,10 @@ func (s *EmployeeService) ListPaymentFollowUps(ctx context.Context, ac *auth.Aut
 
 // ListClaims returns employee claim detail rows.
 func (s *EmployeeService) ListClaims(ctx context.Context, ac *auth.AuthContext, status *string, search string, limit, offset int) ([]domain.EmployeeClaimDetail, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	items, err := s.repo.ListClaims(ctx, ac.OrgID, status, search, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -121,6 +141,10 @@ func (s *EmployeeService) ListClaims(ctx context.Context, ac *auth.AuthContext, 
 
 // GetClaim returns an employee claim detail.
 func (s *EmployeeService) GetClaim(ctx context.Context, ac *auth.AuthContext, claimID uuid.UUID) (*domain.EmployeeClaimDetail, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	item, err := s.repo.GetClaim(ctx, ac.OrgID, claimID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -133,6 +157,10 @@ func (s *EmployeeService) GetClaim(ctx context.Context, ac *auth.AuthContext, cl
 
 // UpdateClaimStatus performs the employee claim triage step.
 func (s *EmployeeService) UpdateClaimStatus(ctx context.Context, ac *auth.AuthContext, claimID uuid.UUID, status domain.ClaimStatus) (*domain.Claim, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	if status != domain.ClaimStatusReview {
 		return nil, domain.BadRequest("employees can only move claims into review")
 	}
@@ -160,6 +188,10 @@ func (s *EmployeeService) UpdateClaimStatus(ctx context.Context, ac *auth.AuthCo
 
 // ListRepairs returns employee repair detail rows.
 func (s *EmployeeService) ListRepairs(ctx context.Context, ac *auth.AuthContext, status *string, search string, limit, offset int) ([]domain.EmployeeRepairDetail, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	items, err := s.repo.ListRepairs(ctx, ac.OrgID, status, search, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -169,6 +201,10 @@ func (s *EmployeeService) ListRepairs(ctx context.Context, ac *auth.AuthContext,
 
 // GetRepair returns a single repair detail for employees.
 func (s *EmployeeService) GetRepair(ctx context.Context, ac *auth.AuthContext, repairID uuid.UUID) (*domain.EmployeeRepairDetail, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	item, err := s.repo.GetRepair(ctx, ac.OrgID, repairID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -181,16 +217,28 @@ func (s *EmployeeService) GetRepair(ctx context.Context, ac *auth.AuthContext, r
 
 // UpdateRepairStatus updates a repair request using the existing transition rules.
 func (s *EmployeeService) UpdateRepairStatus(ctx context.Context, ac *auth.AuthContext, repairID uuid.UUID, status string, scheduledDate, scheduledTime *string) (*domain.RepairBooking, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	return s.repairSvc.AdminUpdateStatus(ctx, ac, repairID, status, scheduledDate, scheduledTime)
 }
 
 // UpdateRepairAmount updates the repair quote amount.
 func (s *EmployeeService) UpdateRepairAmount(ctx context.Context, ac *auth.AuthContext, repairID uuid.UUID, amountXOF int) (*domain.RepairBooking, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	return s.repairSvc.AdminUpdateAmount(ctx, ac, repairID, amountXOF)
 }
 
 // ListTasks returns the operational task queue.
 func (s *EmployeeService) ListTasks(ctx context.Context, ac *auth.AuthContext, limit, offset int) ([]domain.EmployeeTaskItem, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	items, err := s.repo.ListTasks(ctx, ac.OrgID, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -200,6 +248,10 @@ func (s *EmployeeService) ListTasks(ctx context.Context, ac *auth.AuthContext, l
 
 // GetFollowUp returns the current follow-up record for an entity.
 func (s *EmployeeService) GetFollowUp(ctx context.Context, ac *auth.AuthContext, entityType domain.OperationalEntityType, entityID uuid.UUID) (*domain.OperationalFollowUp, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	if appErr := s.ensureOperationalEntity(ctx, ac, entityType, entityID); appErr != nil {
 		return nil, appErr
 	}
@@ -222,6 +274,10 @@ func (s *EmployeeService) UpsertFollowUp(
 	nextAction *string,
 	lastContactAt *time.Time,
 ) (*domain.OperationalFollowUp, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	if appErr := s.ensureOperationalEntity(ctx, ac, entityType, entityID); appErr != nil {
 		return nil, appErr
 	}
@@ -247,6 +303,10 @@ func (s *EmployeeService) UpsertFollowUp(
 
 // ListNotes returns internal operational notes for an entity.
 func (s *EmployeeService) ListNotes(ctx context.Context, ac *auth.AuthContext, entityType domain.OperationalEntityType, entityID uuid.UUID, limit, offset int) ([]domain.OperationalNote, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	if appErr := s.ensureOperationalEntity(ctx, ac, entityType, entityID); appErr != nil {
 		return nil, appErr
 	}
@@ -260,6 +320,10 @@ func (s *EmployeeService) ListNotes(ctx context.Context, ac *auth.AuthContext, e
 
 // CreateNote appends an internal operational note.
 func (s *EmployeeService) CreateNote(ctx context.Context, ac *auth.AuthContext, entityType domain.OperationalEntityType, entityID uuid.UUID, body string) (*domain.OperationalNote, *domain.AppError) {
+	if appErr := s.requireActiveEmployee(ctx, ac); appErr != nil {
+		return nil, appErr
+	}
+
 	if appErr := s.ensureOperationalEntity(ctx, ac, entityType, entityID); appErr != nil {
 		return nil, appErr
 	}
@@ -325,6 +389,20 @@ func (s *EmployeeService) ensureOperationalEntity(ctx context.Context, ac *auth.
 		return domain.BadRequest("invalid entity type")
 	}
 
+	return nil
+}
+
+func (s *EmployeeService) requireActiveEmployee(ctx context.Context, ac *auth.AuthContext) *domain.AppError {
+	profile, err := s.userRepo.GetEmployeeProfile(ctx, ac.OrgID, ac.UserID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if profile == nil {
+		return domain.Forbidden("employee access is not configured")
+	}
+	if profile.Status != domain.EmployeeAccountStatusActive {
+		return domain.Forbidden("employee workspace access is disabled")
+	}
 	return nil
 }
 

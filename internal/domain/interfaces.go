@@ -12,6 +12,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
 	Update(ctx context.Context, user *User) error
 	UpdateRole(ctx context.Context, userID uuid.UUID, role string) error
+	GetEmployeeProfile(ctx context.Context, orgID, userID uuid.UUID) (*EmployeeProfile, error)
 }
 
 // PlanRepository defines data access for insurance plans.
@@ -70,6 +71,9 @@ type AdminRepository interface {
 	GetStats(ctx context.Context, orgID uuid.UUID) (*AdminStats, error)
 	ListCustomers(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]AdminCustomer, error)
 	ListPayments(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]AdminPayment, error)
+	ListEmployees(ctx context.Context, orgID uuid.UUID, search string, status *EmployeeAccountStatus, sort string, limit, offset int) ([]AdminEmployeeListItem, error)
+	GetEmployee(ctx context.Context, orgID, userID uuid.UUID) (*AdminEmployeeDetail, error)
+	UpdateEmployeeStatus(ctx context.Context, orgID, userID, updatedBy uuid.UUID, status EmployeeAccountStatus, suspendedReason *string) (*EmployeeProfile, error)
 }
 
 // EmployeeRepository provides operational read models and workflow persistence for employees.

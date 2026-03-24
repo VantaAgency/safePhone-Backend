@@ -1,0 +1,6 @@
+ALTER TABLE "session" DROP COLUMN IF EXISTS "impersonatedBy";
+
+ALTER TABLE "user"
+  DROP COLUMN IF EXISTS "banExpires",
+  DROP COLUMN IF EXISTS "banReason",
+  DROP COLUMN IF EXISTS banned;

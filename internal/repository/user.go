@@ -74,3 +74,33 @@ func (r *UserRepository) UpdateRole(ctx context.Context, userID uuid.UUID, role 
 	`, userID, role)
 	return err
 }
+
+// GetEmployeeProfile returns the employee profile for a SafePhone user.
+func (r *UserRepository) GetEmployeeProfile(ctx context.Context, orgID, userID uuid.UUID) (*domain.EmployeeProfile, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var profile domain.EmployeeProfile
+	err := r.pool.QueryRow(ctx, `
+		SELECT user_id, org_id, status, suspended_reason, created_by, updated_by, created_at, updated_at
+		FROM employee_profiles
+		WHERE org_id = $1 AND user_id = $2
+	`, orgID, userID).Scan(
+		&profile.UserID,
+		&profile.OrgID,
+		&profile.Status,
+		&profile.SuspendedReason,
+		&profile.CreatedBy,
+		&profile.UpdatedBy,
+		&profile.CreatedAt,
+		&profile.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &profile, nil
+}

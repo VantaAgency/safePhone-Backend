@@ -276,6 +276,25 @@ type AdminDashboardOverview struct {
 	RecentRepairs []RepairBooking `json:"recent_repairs"`
 }
 
+type EmployeeAccountStatus string
+
+const (
+	EmployeeAccountStatusActive    EmployeeAccountStatus = "active"
+	EmployeeAccountStatusInactive  EmployeeAccountStatus = "inactive"
+	EmployeeAccountStatusSuspended EmployeeAccountStatus = "suspended"
+)
+
+type EmployeeProfile struct {
+	UserID          uuid.UUID             `json:"user_id"`
+	OrgID           uuid.UUID             `json:"org_id"`
+	Status          EmployeeAccountStatus `json:"status"`
+	SuspendedReason *string               `json:"suspended_reason,omitempty"`
+	CreatedBy       *uuid.UUID            `json:"created_by,omitempty"`
+	UpdatedBy       *uuid.UUID            `json:"updated_by,omitempty"`
+	CreatedAt       time.Time             `json:"created_at"`
+	UpdatedAt       time.Time             `json:"updated_at"`
+}
+
 type OperationalEntityType string
 
 const (
@@ -483,6 +502,53 @@ type AdminCustomer struct {
 	ActiveSubscriptionCount int                         `json:"active_subscription_count"`
 	TotalSubscriptionCount  int                         `json:"total_subscription_count"`
 	Subscriptions           []AdminCustomerSubscription `json:"subscriptions"`
+}
+
+type AdminEmployeeWorkloadSummary struct {
+	ClientsFollowedCount int        `json:"clients_followed_count"`
+	ActiveClaimsCount    int        `json:"active_claims_count"`
+	ActiveRepairsCount   int        `json:"active_repairs_count"`
+	OpenFollowUpsCount   int        `json:"open_follow_ups_count"`
+	LastActivityAt       *time.Time `json:"last_activity_at,omitempty"`
+	LastLoginAt          *time.Time `json:"last_login_at,omitempty"`
+}
+
+type AdminEmployeeListItem struct {
+	ID              string                       `json:"id"`
+	BetterAuthID    *string                      `json:"better_auth_id,omitempty"`
+	FullName        string                       `json:"full_name"`
+	Email           string                       `json:"email"`
+	Phone           *string                      `json:"phone,omitempty"`
+	Role            string                       `json:"role"`
+	Status          EmployeeAccountStatus        `json:"status"`
+	SuspendedReason *string                      `json:"suspended_reason,omitempty"`
+	JoinedAt        time.Time                    `json:"joined_at"`
+	Workload        AdminEmployeeWorkloadSummary `json:"workload"`
+}
+
+type AdminEmployeeActivityItem struct {
+	Kind        string                `json:"kind"`
+	EntityType  OperationalEntityType `json:"entity_type"`
+	EntityID    string                `json:"entity_id"`
+	Description string                `json:"description"`
+	OccurredAt  time.Time             `json:"occurred_at"`
+}
+
+type AdminEmployeeDetail struct {
+	ID                string                       `json:"id"`
+	BetterAuthID      *string                      `json:"better_auth_id,omitempty"`
+	FullName          string                       `json:"full_name"`
+	Email             string                       `json:"email"`
+	Phone             *string                      `json:"phone,omitempty"`
+	Role              string                       `json:"role"`
+	Status            EmployeeAccountStatus        `json:"status"`
+	SuspendedReason   *string                      `json:"suspended_reason,omitempty"`
+	CreatedAt         time.Time                    `json:"created_at"`
+	UpdatedAt         time.Time                    `json:"updated_at"`
+	WorkspaceAccess   bool                         `json:"workspace_access"`
+	PermissionSummary []string                     `json:"permission_summary"`
+	Workload          AdminEmployeeWorkloadSummary `json:"workload"`
+	RecentActivity    []AdminEmployeeActivityItem  `json:"recent_activity"`
 }
 
 // AdminPayment is a read-only view combining payment + user + plan data.

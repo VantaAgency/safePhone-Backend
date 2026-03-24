@@ -22,11 +22,18 @@ func TestEmployeeUpdateClaimStatusMovesPendingClaimToReview(t *testing.T) {
 			Status: domain.ClaimStatusPending,
 		},
 	}
-	svc := NewEmployeeService(nil, nil, nil, repo, nil)
+	userID := uuid.New()
+	svc := NewEmployeeService(nil, &stubEmployeeUserRepository{
+		profile: &domain.EmployeeProfile{
+			UserID: userID,
+			OrgID:  orgID,
+			Status: domain.EmployeeAccountStatusActive,
+		},
+	}, nil, repo, nil)
 
 	claim, appErr := svc.UpdateClaimStatus(
 		context.Background(),
-		&auth.AuthContext{OrgID: orgID},
+		&auth.AuthContext{OrgID: orgID, UserID: userID},
 		claimID,
 		domain.ClaimStatusReview,
 	)
@@ -59,11 +66,18 @@ func TestEmployeeUpdateClaimStatusRejectsNonPendingClaims(t *testing.T) {
 			Status: domain.ClaimStatusApproved,
 		},
 	}
-	svc := NewEmployeeService(nil, nil, nil, repo, nil)
+	userID := uuid.New()
+	svc := NewEmployeeService(nil, &stubEmployeeUserRepository{
+		profile: &domain.EmployeeProfile{
+			UserID: userID,
+			OrgID:  orgID,
+			Status: domain.EmployeeAccountStatusActive,
+		},
+	}, nil, repo, nil)
 
 	claim, appErr := svc.UpdateClaimStatus(
 		context.Background(),
-		&auth.AuthContext{OrgID: orgID},
+		&auth.AuthContext{OrgID: orgID, UserID: userID},
 		claimID,
 		domain.ClaimStatusReview,
 	)
@@ -72,6 +86,44 @@ func TestEmployeeUpdateClaimStatusRejectsNonPendingClaims(t *testing.T) {
 	}
 	if appErr.Code != domain.CodeBadRequest {
 		t.Fatalf("expected bad request error, got %#v", appErr)
+	}
+	if repo.updated != nil {
+		t.Fatalf("expected no repository update, got %#v", repo.updated)
+	}
+}
+
+func TestEmployeeUpdateClaimStatusRejectsInactiveEmployee(t *testing.T) {
+	t.Parallel()
+
+	orgID := uuid.New()
+	claimID := uuid.New()
+	userID := uuid.New()
+	repo := &stubEmployeeClaimRepository{
+		claim: &domain.Claim{
+			ID:     claimID,
+			OrgID:  orgID,
+			Status: domain.ClaimStatusPending,
+		},
+	}
+	svc := NewEmployeeService(nil, &stubEmployeeUserRepository{
+		profile: &domain.EmployeeProfile{
+			UserID: userID,
+			OrgID:  orgID,
+			Status: domain.EmployeeAccountStatusInactive,
+		},
+	}, nil, repo, nil)
+
+	claim, appErr := svc.UpdateClaimStatus(
+		context.Background(),
+		&auth.AuthContext{OrgID: orgID, UserID: userID},
+		claimID,
+		domain.ClaimStatusReview,
+	)
+	if appErr == nil {
+		t.Fatalf("expected forbidden error, got claim %#v", claim)
+	}
+	if appErr.Code != domain.CodeForbidden {
+		t.Fatalf("expected forbidden error, got %#v", appErr)
 	}
 	if repo.updated != nil {
 		t.Fatalf("expected no repository update, got %#v", repo.updated)
@@ -108,4 +160,24 @@ func (s *stubEmployeeClaimRepository) Update(_ context.Context, claim *domain.Cl
 
 func (s *stubEmployeeClaimRepository) ExistsPendingByDeviceAndType(context.Context, uuid.UUID, uuid.UUID, domain.ClaimType) (bool, error) {
 	panic("unexpected call to ExistsPendingByDeviceAndType")
+}
+
+type stubEmployeeUserRepository struct {
+	profile *domain.EmployeeProfile
+}
+
+func (s *stubEmployeeUserRepository) GetByID(context.Context, uuid.UUID) (*domain.User, error) {
+	panic("unexpected call to GetByID")
+}
+
+func (s *stubEmployeeUserRepository) Update(context.Context, *domain.User) error {
+	panic("unexpected call to Update")
+}
+
+func (s *stubEmployeeUserRepository) UpdateRole(context.Context, uuid.UUID, string) error {
+	panic("unexpected call to UpdateRole")
+}
+
+func (s *stubEmployeeUserRepository) GetEmployeeProfile(context.Context, uuid.UUID, uuid.UUID) (*domain.EmployeeProfile, error) {
+	return s.profile, nil
 }
