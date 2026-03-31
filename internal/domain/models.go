@@ -471,8 +471,11 @@ type EmployeeDashboardOverview struct {
 }
 
 type PartnerDashboardOverview struct {
-	Profile       *PartnerProfile `json:"profile,omitempty"`
-	RecentClients []PartnerClient `json:"recent_clients"`
+	Profile         *PartnerProfile         `json:"profile,omitempty"`
+	ReferralLink    string                  `json:"referral_link"`
+	ReferralMetrics *PartnerReferralMetrics `json:"referral_metrics,omitempty"`
+	PlanBreakdown   []PartnerPlanBreakdown  `json:"plan_breakdown"`
+	RecentClients   []PartnerClient         `json:"recent_clients"`
 }
 
 // AdminCustomer is a read-only view combining user + subscription + device data.
@@ -494,14 +497,18 @@ type AdminCustomerSubscription struct {
 }
 
 type AdminCustomer struct {
-	ID                      string                      `json:"id"`
-	FullName                string                      `json:"full_name"`
-	Phone                   *string                     `json:"phone,omitempty"`
-	Email                   string                      `json:"email"`
-	DeviceCount             int                         `json:"device_count"`
-	ActiveSubscriptionCount int                         `json:"active_subscription_count"`
-	TotalSubscriptionCount  int                         `json:"total_subscription_count"`
-	Subscriptions           []AdminCustomerSubscription `json:"subscriptions"`
+	ID                       string                      `json:"id"`
+	FullName                 string                      `json:"full_name"`
+	Phone                    *string                     `json:"phone,omitempty"`
+	Email                    string                      `json:"email"`
+	PartnerStoreName         *string                     `json:"partner_store_name,omitempty"`
+	PartnerReferralCode      *string                     `json:"partner_referral_code,omitempty"`
+	PartnerAttributionSource *string                     `json:"partner_attribution_source,omitempty"`
+	PartnerAttributedAt      *time.Time                  `json:"partner_attributed_at,omitempty"`
+	DeviceCount              int                         `json:"device_count"`
+	ActiveSubscriptionCount  int                         `json:"active_subscription_count"`
+	TotalSubscriptionCount   int                         `json:"total_subscription_count"`
+	Subscriptions            []AdminCustomerSubscription `json:"subscriptions"`
 }
 
 type AdminEmployeeWorkloadSummary struct {
@@ -659,6 +666,7 @@ type Partner struct {
 	StoreName            string    `json:"store_name"`
 	City                 string    `json:"city"`
 	BusinessLocation     string    `json:"business_location"`
+	ReferralCode         string    `json:"referral_code"`
 	CommissionPercentage float64   `json:"commission_percentage"`
 	Status               string    `json:"status"`
 	CreatedAt            time.Time `json:"created_at"`
@@ -675,6 +683,10 @@ type PartnerClient struct {
 	ClientPhone            *string    `json:"client_phone,omitempty"`
 	PlanID                 *uuid.UUID `json:"plan_id,omitempty"`
 	Status                 string     `json:"status"`
+	AttributionSource      string     `json:"attribution_source"`
+	ReferralCode           *string    `json:"referral_code,omitempty"`
+	ReferralMedium         string     `json:"referral_medium"`
+	AttributedAt           *time.Time `json:"attributed_at,omitempty"`
 	InvitationToken        string     `json:"-"`
 	InvitationURL          string     `json:"invitation_url,omitempty"`
 	InvitationExpiresAt    *time.Time `json:"invitation_expires_at,omitempty"`
@@ -707,6 +719,55 @@ type PartnerInvitationDetails struct {
 	LinkedUserID        *uuid.UUID `json:"-"`
 }
 
+// PartnerReferralDetails is the public referral context for reusable partner links.
+type PartnerReferralDetails struct {
+	PartnerID        uuid.UUID `json:"partner_id"`
+	PartnerStoreName string    `json:"partner_store_name"`
+	PartnerCity      string    `json:"partner_city"`
+	ReferralCode     string    `json:"referral_code"`
+	ReferralLink     string    `json:"referral_link,omitempty"`
+	Status           string    `json:"status"`
+}
+
+// PartnerReferralVisit represents a public referral landing event.
+type PartnerReferralVisit struct {
+	ID           uuid.UUID `json:"id"`
+	OrgID        uuid.UUID `json:"org_id"`
+	PartnerID    uuid.UUID `json:"partner_id"`
+	ReferralCode string    `json:"referral_code"`
+	VisitorToken string    `json:"visitor_token"`
+	SourceMedium string    `json:"source_medium"`
+	VisitedAt    time.Time `json:"visited_at"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// PartnerReferralVisitResult is returned after tracking a referral visit.
+type PartnerReferralVisitResult struct {
+	Referral     *PartnerReferralDetails `json:"referral,omitempty"`
+	VisitorToken string                  `json:"visitor_token"`
+	SourceMedium string                  `json:"source_medium"`
+	VisitedAt    time.Time               `json:"visited_at"`
+}
+
+// PartnerReferralMetrics aggregates reusable-link acquisition performance.
+type PartnerReferralMetrics struct {
+	TotalVisits         int     `json:"total_visits"`
+	QRVisits            int     `json:"qr_visits"`
+	ShareVisits         int     `json:"share_visits"`
+	TotalSignups        int     `json:"total_signups"`
+	PaymentPendingCount int     `json:"payment_pending_count"`
+	ActiveClients       int     `json:"active_clients"`
+	ConversionRate      float64 `json:"conversion_rate"`
+}
+
+// PartnerPlanBreakdown summarizes referred customers by chosen plan.
+type PartnerPlanBreakdown struct {
+	PlanID     *string `json:"plan_id,omitempty"`
+	PlanNameFR *string `json:"plan_name_fr,omitempty"`
+	PlanNameEN *string `json:"plan_name_en,omitempty"`
+	Count      int     `json:"count"`
+}
+
 // PartnerCommission represents an earned commission record.
 type PartnerCommission struct {
 	ID                   uuid.UUID  `json:"id"`
@@ -732,6 +793,7 @@ type PartnerProfile struct {
 	StoreName                string    `json:"store_name"`
 	City                     string    `json:"city"`
 	BusinessLocation         string    `json:"business_location"`
+	ReferralCode             string    `json:"referral_code"`
 	CommissionPercentage     float64   `json:"commission_percentage"`
 	Status                   string    `json:"status"`
 	TotalClients             int       `json:"total_clients"`
@@ -787,14 +849,42 @@ type AdminPartner struct {
 	OwnerName                string  `json:"owner_name"`
 	City                     string  `json:"city"`
 	BusinessLocation         string  `json:"business_location"`
+	ReferralCode             string  `json:"referral_code"`
 	CommissionPercentage     float64 `json:"commission_percentage"`
 	ClientsCount             int     `json:"clients_count"`
 	ActiveClients            int     `json:"active_clients"`
+	ReferralVisits           int     `json:"referral_visits"`
+	QRReferralVisits         int     `json:"qr_referral_visits"`
+	ReferralSignups          int     `json:"referral_signups"`
+	ReferralActivations      int     `json:"referral_activations"`
+	ReferralConversionRate   float64 `json:"referral_conversion_rate"`
 	TotalCommissionEarnedXOF int     `json:"total_commission_earned_xof"`
 	TotalCommissionOwedXOF   int     `json:"total_commission_owed_xof"`
 	TotalCommissionPaidXOF   int     `json:"total_commission_paid_xof"`
 	Status                   string  `json:"status"`
 	JoinedAt                 string  `json:"joined_at"`
+}
+
+// AdminPartnerReferral is a detailed admin view of customers attributed to a partner.
+type AdminPartnerReferral struct {
+	PartnerClientID        string     `json:"partner_client_id"`
+	ClientUserID           *string    `json:"client_user_id,omitempty"`
+	CustomerName           string     `json:"customer_name"`
+	CustomerEmail          *string    `json:"customer_email,omitempty"`
+	CustomerPhone          *string    `json:"customer_phone,omitempty"`
+	AttributionSource      string     `json:"attribution_source"`
+	ReferralCode           *string    `json:"referral_code,omitempty"`
+	ReferralMedium         string     `json:"referral_medium"`
+	AttributedAt           *time.Time `json:"attributed_at,omitempty"`
+	PlanID                 *string    `json:"plan_id,omitempty"`
+	PlanNameFR             *string    `json:"plan_name_fr,omitempty"`
+	PlanNameEN             *string    `json:"plan_name_en,omitempty"`
+	ClientStatus           string     `json:"client_status"`
+	SubscriptionStatus     *string    `json:"subscription_status,omitempty"`
+	PaymentStatus          *string    `json:"payment_status,omitempty"`
+	HasGeneratedCommission bool       `json:"has_generated_commission"`
+	CommissionAmountXOF    *int       `json:"commission_amount_xof,omitempty"`
+	CommissionStatus       *string    `json:"commission_status,omitempty"`
 }
 
 // AdminPartnerCommission is a read-only admin view of a partner commission line item.

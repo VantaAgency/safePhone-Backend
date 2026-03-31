@@ -120,7 +120,7 @@ func main() {
 	// Initialize services
 	userSvc := service.NewUserService(userRepo)
 	adminSvc := service.NewAdminService(adminRepo)
-	dashboardSvc := service.NewDashboardService(dashboardRepo, adminRepo, partnerRepo)
+	dashboardSvc := service.NewDashboardService(dashboardRepo, adminRepo, partnerRepo, cfg.FrontendURL)
 	planSvc := service.NewPlanService(planRepo, cfg.IsDevelopment())
 	deviceSvc := service.NewDeviceService(deviceRepo, subRepo)
 	subSvc := service.NewSubscriptionService(subRepo, planRepo, cfg.IsDevelopment())
@@ -128,7 +128,7 @@ func main() {
 	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, webhookEventRepo, dexpayClient, pool, cfg.FrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
 	contactSvc := service.NewContactService(contactRepo)
 	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, pool)
-	partnerSvc := service.NewPartnerService(partnerRepo, cfg.FrontendURL)
+	partnerSvc := service.NewPartnerService(partnerRepo, userRepo, paymentRepo, cfg.FrontendURL)
 	repairSvc := service.NewRepairService(repairRepo)
 	employeeSvc := service.NewEmployeeService(employeeRepo, userRepo, subRepo, claimRepo, repairSvc)
 
@@ -176,6 +176,8 @@ func main() {
 		r.Get("/plans", planH.List)
 		r.Post("/contact", contactH.Submit)
 		r.Get("/partner-invitations/{token}", partnerH.GetInvitation)
+		r.Get("/partner-referrals/{code}", partnerH.GetReferral)
+		r.Post("/partner-referrals/{code}/visits", partnerH.TrackReferralVisit)
 		r.Patch("/partner-clients/{id}/status", partnerH.UpdateClientStatus)
 		r.With(jwtVerifier.AuthenticateOptional).Post("/repairs", repairH.CreateBooking)
 		r.Post("/repairs/lookup", repairH.LookupBooking)
@@ -238,6 +240,7 @@ func main() {
 			})
 
 			r.Post("/partner-invitations/{token}/claim", partnerH.ClaimInvitation)
+			r.Post("/partner-referrals/{code}/claim", partnerH.ClaimReferral)
 
 			// Admin routes
 			r.Route("/admin", func(r chi.Router) {
@@ -260,6 +263,7 @@ func main() {
 				r.Put("/repairs/{id}/amount", repairH.AdminUpdateAmount)
 				r.Get("/partners", partnerH.ListAllPartners)
 				r.Get("/partners/{id}/commissions", partnerH.ListAdminPartnerCommissions)
+				r.Get("/partners/{id}/referrals", partnerH.ListAdminPartnerReferrals)
 				r.Get("/partner-applications", partnerAppH.AdminList)
 				r.Put("/partner-applications/{id}/review", partnerAppH.AdminReview)
 			})

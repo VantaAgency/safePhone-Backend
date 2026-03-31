@@ -117,6 +117,11 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 		app.Status = string(domain.PartnerAppStatusApproved)
 		app.CommissionPercentage = commissionPercentage
 
+		referralCode, err := generateUniqueReferralCode(ctx, s.partnerRepo)
+		if err != nil {
+			return nil, domain.InternalError(err)
+		}
+
 		if txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
 			// 1. Update application status
 			if _, err := tx.Exec(ctx, `
@@ -129,9 +134,11 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 
 			// 2. Create the partner record with the admin-assigned commission percentage.
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO partners (org_id, user_id, store_name, city, business_location, commission_percentage, status)
-				VALUES ($1, $2, $3, $4, $5, $6, 'active')
-			`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, *commissionPercentage); err != nil {
+				INSERT INTO partners (
+					org_id, user_id, store_name, city, business_location, referral_code, commission_percentage, status
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
+			`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, referralCode, *commissionPercentage); err != nil {
 				return err
 			}
 

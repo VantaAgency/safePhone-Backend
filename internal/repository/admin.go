@@ -121,6 +121,10 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 			u.full_name,
 			u.phone,
 			u.email,
+			partner_attr.partner_store_name,
+			partner_attr.partner_referral_code,
+			partner_attr.partner_attribution_source,
+			partner_attr.partner_attributed_at,
 			(
 				SELECT COUNT(*)
 				FROM devices d_count
@@ -173,6 +177,19 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 				'[]'::jsonb
 			) AS subscriptions
 		FROM users u
+		LEFT JOIN LATERAL (
+			SELECT
+				p.store_name AS partner_store_name,
+				pc.referral_code AS partner_referral_code,
+				pc.attribution_source AS partner_attribution_source,
+				pc.attributed_at AS partner_attributed_at
+			FROM partner_clients pc
+			JOIN partners p ON p.id = pc.partner_id
+			WHERE pc.org_id = u.org_id
+			  AND pc.linked_user_id = u.id
+			ORDER BY COALESCE(pc.attributed_at, pc.invited_at, pc.created_at) DESC
+			LIMIT 1
+		) AS partner_attr ON TRUE
 		LEFT JOIN subscriptions s ON s.user_id = u.id AND s.org_id = u.org_id
 		LEFT JOIN plans p ON p.id = s.plan_id
 		LEFT JOIN devices d ON d.id = s.device_id AND d.org_id = s.org_id AND d.deleted_at IS NULL
@@ -180,7 +197,16 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 		  AND u.deleted_at IS NULL
 		  AND ($2 = '' OR lower(u.full_name) LIKE '%' || lower($2) || '%' OR lower(u.email) LIKE '%' || lower($2) || '%')
 		  AND u.role = 'member'
-		GROUP BY u.id, u.full_name, u.phone, u.email, u.created_at
+		GROUP BY
+			u.id,
+			u.full_name,
+			u.phone,
+			u.email,
+			u.created_at,
+			partner_attr.partner_store_name,
+			partner_attr.partner_referral_code,
+			partner_attr.partner_attribution_source,
+			partner_attr.partner_attributed_at
 		ORDER BY u.created_at DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, search, limit, offset)
@@ -199,6 +225,10 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 			&c.FullName,
 			&c.Phone,
 			&c.Email,
+			&c.PartnerStoreName,
+			&c.PartnerReferralCode,
+			&c.PartnerAttributionSource,
+			&c.PartnerAttributedAt,
 			&c.DeviceCount,
 			&c.ActiveSubscriptionCount,
 			&c.TotalSubscriptionCount,

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -146,6 +148,23 @@ func (h *PartnerHandler) GetInvitation(w http.ResponseWriter, r *http.Request) {
 	WriteSuccess(w, r, http.StatusOK, details)
 }
 
+// GetReferral handles GET /api/v1/partner-referrals/{code}.
+func (h *PartnerHandler) GetReferral(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(chi.URLParam(r, "code"))
+	if code == "" {
+		WriteError(w, r, domain.BadRequest("missing referral code"))
+		return
+	}
+
+	details, appErr := h.svc.GetReferralDetails(r.Context(), code)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusOK, details)
+}
+
 // ClaimInvitation handles POST /api/v1/partner-invitations/{token}/claim.
 func (h *PartnerHandler) ClaimInvitation(w http.ResponseWriter, r *http.Request) {
 	ac, err := auth.GetAuthContext(r.Context())
@@ -161,6 +180,77 @@ func (h *PartnerHandler) ClaimInvitation(w http.ResponseWriter, r *http.Request)
 	}
 
 	details, appErr := h.svc.ClaimInvitation(r.Context(), ac, token)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusOK, details)
+}
+
+// TrackReferralVisitRequest is the request body for referral landing analytics.
+type TrackReferralVisitRequest struct {
+	VisitorToken string `json:"visitor_token" validate:"omitempty,max=100"`
+	SourceMedium string `json:"source_medium" validate:"omitempty,oneof=qr share unknown"`
+}
+
+// TrackReferralVisit handles POST /api/v1/partner-referrals/{code}/visits.
+func (h *PartnerHandler) TrackReferralVisit(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(chi.URLParam(r, "code"))
+	if code == "" {
+		WriteError(w, r, domain.BadRequest("missing referral code"))
+		return
+	}
+
+	var req TrackReferralVisitRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		WriteError(w, r, domain.BadRequest("invalid request body"))
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		WriteError(w, r, domain.ValidationFailed("validation failed", nil))
+		return
+	}
+
+	result, appErr := h.svc.TrackReferralVisit(r.Context(), code, req.VisitorToken, req.SourceMedium)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusOK, result)
+}
+
+// ClaimReferralRequest is the optional request body for referral attribution.
+type ClaimReferralRequest struct {
+	SourceMedium string `json:"source_medium" validate:"omitempty,oneof=qr share unknown"`
+}
+
+// ClaimReferral handles POST /api/v1/partner-referrals/{code}/claim.
+func (h *PartnerHandler) ClaimReferral(w http.ResponseWriter, r *http.Request) {
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+
+	code := strings.TrimSpace(chi.URLParam(r, "code"))
+	if code == "" {
+		WriteError(w, r, domain.BadRequest("missing referral code"))
+		return
+	}
+
+	var req ClaimReferralRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		WriteError(w, r, domain.BadRequest("invalid request body"))
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		WriteError(w, r, domain.ValidationFailed("validation failed", nil))
+		return
+	}
+
+	details, appErr := h.svc.ClaimReferral(r.Context(), ac, code, req.SourceMedium)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
@@ -296,4 +386,43 @@ func (h *PartnerHandler) ListAdminPartnerCommissions(w http.ResponseWriter, r *h
 	}
 
 	WriteSuccess(w, r, http.StatusOK, commissions)
+}
+
+// ListAdminPartnerReferrals handles GET /api/v1/admin/partners/{id}/referrals.
+func (h *PartnerHandler) ListAdminPartnerReferrals(w http.ResponseWriter, r *http.Request) {
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+
+	partnerID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		WriteError(w, r, domain.BadRequest("invalid partner id"))
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	referrals, appErr := h.svc.ListAdminReferrals(r.Context(), ac, partnerID, limit, offset)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	WriteSuccess(w, r, http.StatusOK, referrals)
+}
+
+func decodeOptionalJSON(r *http.Request, target any) error {
+	if r.Body == nil || r.ContentLength == 0 {
+		return nil
+	}
+	if err := DecodeJSON(r, target); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

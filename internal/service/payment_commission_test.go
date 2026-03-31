@@ -228,6 +228,10 @@ func (s *stubPartnerRepository) GetByUser(_ context.Context, _, _ uuid.UUID) (*d
 	return s.partner, nil
 }
 
+func (s *stubPartnerRepository) GetByReferralCode(_ context.Context, _ string) (*domain.Partner, error) {
+	return s.partner, nil
+}
+
 func (s *stubPartnerRepository) GetProfile(_ context.Context, _, _ uuid.UUID) (*domain.PartnerProfile, error) {
 	return nil, nil
 }
@@ -252,6 +256,10 @@ func (s *stubPartnerRepository) GetInvitationDetailsByToken(_ context.Context, _
 	return nil, nil
 }
 
+func (s *stubPartnerRepository) GetReferralDetailsByCode(_ context.Context, _ string) (*domain.PartnerReferralDetails, error) {
+	return nil, nil
+}
+
 func (s *stubPartnerRepository) ListClients(_ context.Context, _ uuid.UUID, _, _ int) ([]domain.PartnerClient, error) {
 	return nil, nil
 }
@@ -270,6 +278,18 @@ func (s *stubPartnerRepository) UpdateClientStatus(_ context.Context, _ uuid.UUI
 
 func (s *stubPartnerRepository) UpdateClientStatusByLinkedUser(_ context.Context, _ uuid.UUID, _ string, _ *uuid.UUID) error {
 	return nil
+}
+
+func (s *stubPartnerRepository) CreateReferralVisit(_ context.Context, _ *domain.PartnerReferralVisit) error {
+	return nil
+}
+
+func (s *stubPartnerRepository) GetReferralMetrics(_ context.Context, _ uuid.UUID) (*domain.PartnerReferralMetrics, error) {
+	return nil, nil
+}
+
+func (s *stubPartnerRepository) ListPlanBreakdown(_ context.Context, _ uuid.UUID, _ int) ([]domain.PartnerPlanBreakdown, error) {
+	return nil, nil
 }
 
 func (s *stubPartnerRepository) CreateCommission(_ context.Context, commission *domain.PartnerCommission) error {
@@ -291,5 +311,9 @@ func (s *stubPartnerRepository) ListAll(_ context.Context, _ uuid.UUID, _, _ int
 }
 
 func (s *stubPartnerRepository) ListAdminCommissions(_ context.Context, _ uuid.UUID, _, _ int) ([]domain.AdminPartnerCommission, error) {
+	return nil, nil
+}
+
+func (s *stubPartnerRepository) ListAdminReferrals(_ context.Context, _ uuid.UUID, _, _ int) ([]domain.AdminPartnerReferral, error) {
 	return nil, nil
 }

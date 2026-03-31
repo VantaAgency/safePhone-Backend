@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"strings"
 	"time"
@@ -16,13 +17,17 @@ import (
 // PartnerService handles business logic for the partner domain.
 type PartnerService struct {
 	repo        domain.PartnerRepository
+	userRepo    domain.UserRepository
+	paymentRepo domain.PaymentRepository
 	frontendURL string
 }
 
 // NewPartnerService creates a new partner service.
-func NewPartnerService(repo domain.PartnerRepository, frontendURL string) *PartnerService {
+func NewPartnerService(repo domain.PartnerRepository, userRepo domain.UserRepository, paymentRepo domain.PaymentRepository, frontendURL string) *PartnerService {
 	return &PartnerService{
 		repo:        repo,
+		userRepo:    userRepo,
+		paymentRepo: paymentRepo,
 		frontendURL: strings.TrimRight(strings.TrimSpace(frontendURL), "/"),
 	}
 }
@@ -87,6 +92,9 @@ func (s *PartnerService) CreateClient(ctx context.Context, ac *auth.AuthContext,
 		ClientPhone:         phone,
 		PlanID:              planID,
 		Status:              "invited",
+		AttributionSource:   "manual_invitation",
+		ReferralCode:        ptrString(partner.ReferralCode),
+		ReferralMedium:      "unknown",
 		InvitationToken:     buildInvitationToken(),
 		InvitationExpiresAt: ptrTime(invitationExpiresAt()),
 	}
@@ -145,6 +153,135 @@ func (s *PartnerService) GetInvitationDetails(ctx context.Context, token string)
 	}
 	details.InvitationURL = buildInvitationURL(s.frontendURL, token)
 	return details, nil
+}
+
+// GetReferralDetails resolves a reusable public partner referral code.
+func (s *PartnerService) GetReferralDetails(ctx context.Context, code string) (*domain.PartnerReferralDetails, *domain.AppError) {
+	details, err := s.repo.GetReferralDetailsByCode(ctx, normalizeReferralCode(code))
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if details == nil || strings.TrimSpace(details.Status) != "active" {
+		return nil, domain.NotFound("partner referral")
+	}
+	details.ReferralLink = buildReferralURL(s.frontendURL, details.ReferralCode)
+	return details, nil
+}
+
+// TrackReferralVisit logs a reusable-link visit and returns the visitor token/context.
+func (s *PartnerService) TrackReferralVisit(ctx context.Context, code, visitorToken, sourceMedium string) (*domain.PartnerReferralVisitResult, *domain.AppError) {
+	partner, err := s.repo.GetByReferralCode(ctx, normalizeReferralCode(code))
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if partner == nil || strings.TrimSpace(partner.Status) != "active" {
+		return nil, domain.NotFound("partner referral")
+	}
+
+	token := strings.TrimSpace(visitorToken)
+	if token == "" {
+		token = buildVisitorToken()
+	}
+
+	visit := &domain.PartnerReferralVisit{
+		OrgID:        partner.OrgID,
+		PartnerID:    partner.ID,
+		ReferralCode: partner.ReferralCode,
+		VisitorToken: token,
+		SourceMedium: normalizeReferralMedium(sourceMedium),
+		VisitedAt:    time.Now(),
+	}
+	if err := s.repo.CreateReferralVisit(ctx, visit); err != nil {
+		return nil, domain.InternalError(err)
+	}
+
+	return &domain.PartnerReferralVisitResult{
+		Referral: &domain.PartnerReferralDetails{
+			PartnerID:        partner.ID,
+			PartnerStoreName: partner.StoreName,
+			PartnerCity:      partner.City,
+			ReferralCode:     partner.ReferralCode,
+			ReferralLink:     buildReferralURL(s.frontendURL, partner.ReferralCode),
+			Status:           partner.Status,
+		},
+		VisitorToken: token,
+		SourceMedium: visit.SourceMedium,
+		VisitedAt:    visit.VisitedAt,
+	}, nil
+}
+
+// ClaimReferral links the authenticated account to a partner's reusable referral code.
+func (s *PartnerService) ClaimReferral(ctx context.Context, ac *auth.AuthContext, code, sourceMedium string) (*domain.PartnerReferralDetails, *domain.AppError) {
+	partner, err := s.repo.GetByReferralCode(ctx, normalizeReferralCode(code))
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if partner == nil || partner.OrgID != ac.OrgID || strings.TrimSpace(partner.Status) != "active" {
+		return nil, domain.NotFound("partner referral")
+	}
+
+	existingClient, err := s.repo.GetClientByLinkedUser(ctx, ac.OrgID, ac.UserID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if existingClient != nil {
+		if existingClient.PartnerID != partner.ID {
+			return nil, domain.Conflict("this account is already attributed to another partner")
+		}
+		return s.GetReferralDetails(ctx, partner.ReferralCode)
+	}
+
+	if s.paymentRepo != nil {
+		firstSuccessfulPayment, err := s.paymentRepo.GetFirstSuccessfulByUser(ctx, ac.OrgID, ac.UserID)
+		if err != nil {
+			return nil, domain.InternalError(err)
+		}
+		if firstSuccessfulPayment != nil {
+			return nil, domain.Conflict("partner attribution must be set before the first successful payment")
+		}
+	}
+
+	if s.userRepo == nil {
+		return nil, domain.InternalError(fmt.Errorf("missing user repository"))
+	}
+
+	user, err := s.userRepo.GetByID(ctx, ac.UserID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if user == nil || user.OrgID != ac.OrgID {
+		return nil, domain.NotFound("user")
+	}
+
+	now := time.Now()
+	client := &domain.PartnerClient{
+		OrgID:               ac.OrgID,
+		PartnerID:           partner.ID,
+		LinkedUserID:        &ac.UserID,
+		ClientName:          fallbackPartnerClientName(user),
+		ClientPhone:         user.Phone,
+		Status:              "account_created",
+		AttributionSource:   "partner_referral_link",
+		ReferralCode:        ptrString(partner.ReferralCode),
+		ReferralMedium:      normalizeReferralMedium(sourceMedium),
+		AttributedAt:        &now,
+		InvitationToken:     buildInvitationToken(),
+		InvitationExpiresAt: ptrTime(invitationExpiresAt()),
+		InvitationClaimedAt: &now,
+	}
+
+	if err := s.repo.CreateClient(ctx, client); err != nil {
+		raceWinner, lookupErr := s.repo.GetClientByLinkedUser(ctx, ac.OrgID, ac.UserID)
+		if lookupErr == nil && raceWinner != nil {
+			if raceWinner.PartnerID != partner.ID {
+				return nil, domain.Conflict("this account is already attributed to another partner")
+			}
+			return s.GetReferralDetails(ctx, partner.ReferralCode)
+		}
+		return nil, domain.InternalError(err)
+	}
+
+	return s.GetReferralDetails(ctx, partner.ReferralCode)
 }
 
 // ClaimInvitation links the current user to an invitation after auth.
@@ -265,6 +402,26 @@ func (s *PartnerService) ListAdminCommissions(ctx context.Context, ac *auth.Auth
 	return commissions, nil
 }
 
+// ListAdminReferrals returns customer-level referral reporting for a partner in the admin dashboard.
+func (s *PartnerService) ListAdminReferrals(ctx context.Context, ac *auth.AuthContext, partnerID uuid.UUID, limit, offset int) ([]domain.AdminPartnerReferral, *domain.AppError) {
+	partner, err := s.repo.GetByID(ctx, partnerID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if partner == nil || partner.OrgID != ac.OrgID {
+		return nil, domain.NotFound("partner")
+	}
+
+	items, err := s.repo.ListAdminReferrals(ctx, partnerID, limit, offset)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if items == nil {
+		items = []domain.AdminPartnerReferral{}
+	}
+	return items, nil
+}
+
 func (s *PartnerService) decorateClientInvitation(client *domain.PartnerClient) {
 	if client == nil || strings.TrimSpace(client.InvitationToken) == "" {
 		return
@@ -276,11 +433,53 @@ func buildInvitationToken() string {
 	return uuid.NewString()
 }
 
+func buildVisitorToken() string {
+	return uuid.NewString()
+}
+
+func buildReferralCode() (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	const length = 8
+
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+
+	var code strings.Builder
+	code.Grow(length)
+	for _, b := range buf {
+		code.WriteByte(alphabet[int(b)%len(alphabet)])
+	}
+	return code.String(), nil
+}
+
+func generateUniqueReferralCode(ctx context.Context, repo domain.PartnerRepository) (string, error) {
+	for range 12 {
+		code, err := buildReferralCode()
+		if err != nil {
+			return "", err
+		}
+		existing, err := repo.GetByReferralCode(ctx, code)
+		if err != nil {
+			return "", err
+		}
+		if existing == nil {
+			return code, nil
+		}
+	}
+	return "", fmt.Errorf("failed to generate unique referral code")
+}
+
 func invitationExpiresAt() time.Time {
 	return time.Now().Add(30 * 24 * time.Hour)
 }
 
 func ptrTime(value time.Time) *time.Time {
+	return &value
+}
+
+func ptrString(value string) *string {
 	return &value
 }
 
@@ -293,4 +492,39 @@ func buildInvitationURL(frontendURL, token string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/inscription?invite=%s", frontendURL, token)
+}
+
+func buildReferralURL(frontendURL, code string) string {
+	if frontendURL == "" || code == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/p/%s", frontendURL, code)
+}
+
+func normalizeReferralCode(code string) string {
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
+func normalizeReferralMedium(sourceMedium string) string {
+	switch strings.ToLower(strings.TrimSpace(sourceMedium)) {
+	case "qr":
+		return "qr"
+	case "share":
+		return "share"
+	default:
+		return "unknown"
+	}
+}
+
+func fallbackPartnerClientName(user *domain.User) string {
+	if user == nil {
+		return "Client SafePhone"
+	}
+	if name := strings.TrimSpace(user.FullName); name != "" {
+		return name
+	}
+	if email := strings.TrimSpace(user.Email); email != "" {
+		return email
+	}
+	return "Client SafePhone"
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cherif-safephone/safephone-backend/internal/auth"
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
@@ -9,20 +10,23 @@ import (
 )
 
 type DashboardService struct {
-	repo      *repository.DashboardRepository
-	adminRepo *repository.AdminRepository
-	partner   domain.PartnerRepository
+	repo        *repository.DashboardRepository
+	adminRepo   *repository.AdminRepository
+	partner     domain.PartnerRepository
+	frontendURL string
 }
 
 func NewDashboardService(
 	repo *repository.DashboardRepository,
 	adminRepo *repository.AdminRepository,
 	partnerRepo domain.PartnerRepository,
+	frontendURL string,
 ) *DashboardService {
 	return &DashboardService{
-		repo:      repo,
-		adminRepo: adminRepo,
-		partner:   partnerRepo,
+		repo:        repo,
+		adminRepo:   adminRepo,
+		partner:     partnerRepo,
+		frontendURL: strings.TrimRight(strings.TrimSpace(frontendURL), "/"),
 	}
 }
 
@@ -76,8 +80,23 @@ func (s *DashboardService) GetPartnerOverview(
 		clients = []domain.PartnerClient{}
 	}
 
+	referralMetrics, err := s.partner.GetReferralMetrics(ctx, partnerRecord.ID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	planBreakdown, err := s.partner.ListPlanBreakdown(ctx, partnerRecord.ID, 10)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if planBreakdown == nil {
+		planBreakdown = []domain.PartnerPlanBreakdown{}
+	}
+
 	return &domain.PartnerDashboardOverview{
-		Profile:       profile,
-		RecentClients: clients,
+		Profile:         profile,
+		ReferralLink:    buildReferralURL(s.frontendURL, profile.ReferralCode),
+		ReferralMetrics: referralMetrics,
+		PlanBreakdown:   planBreakdown,
+		RecentClients:   clients,
 	}, nil
 }

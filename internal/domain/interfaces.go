@@ -110,22 +110,28 @@ type PartnerRepository interface {
 	Create(ctx context.Context, partner *Partner) error
 	GetByID(ctx context.Context, partnerID uuid.UUID) (*Partner, error)
 	GetByUser(ctx context.Context, orgID, userID uuid.UUID) (*Partner, error)
+	GetByReferralCode(ctx context.Context, code string) (*Partner, error)
 	GetProfile(ctx context.Context, orgID, userID uuid.UUID) (*PartnerProfile, error)
 	CreateClient(ctx context.Context, client *PartnerClient) error
 	GetClientByID(ctx context.Context, clientID uuid.UUID) (*PartnerClient, error)
 	GetClientByLinkedUser(ctx context.Context, orgID, userID uuid.UUID) (*PartnerClient, error)
 	GetClientByInvitationToken(ctx context.Context, token string) (*PartnerClient, error)
 	GetInvitationDetailsByToken(ctx context.Context, token string) (*PartnerInvitationDetails, error)
+	GetReferralDetailsByCode(ctx context.Context, code string) (*PartnerReferralDetails, error)
 	ListClients(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]PartnerClient, error)
 	ClaimClientInvitation(ctx context.Context, clientID, userID uuid.UUID) error
 	RefreshClientInvitation(ctx context.Context, clientID uuid.UUID, token string, expiresAt time.Time) error
 	UpdateClientStatus(ctx context.Context, clientID uuid.UUID, status string, planID *uuid.UUID) error
 	UpdateClientStatusByLinkedUser(ctx context.Context, userID uuid.UUID, status string, planID *uuid.UUID) error
+	CreateReferralVisit(ctx context.Context, visit *PartnerReferralVisit) error
+	GetReferralMetrics(ctx context.Context, partnerID uuid.UUID) (*PartnerReferralMetrics, error)
+	ListPlanBreakdown(ctx context.Context, partnerID uuid.UUID, limit int) ([]PartnerPlanBreakdown, error)
 	CreateCommission(ctx context.Context, commission *PartnerCommission) error
 	ListSales(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]PartnerSale, error)
 	ListPayouts(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]PartnerPayout, error)
 	ListAll(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]AdminPartner, error)
 	ListAdminCommissions(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]AdminPartnerCommission, error)
+	ListAdminReferrals(ctx context.Context, partnerID uuid.UUID, limit, offset int) ([]AdminPartnerReferral, error)
 }
 
 // WebhookEventRepository defines data access for webhook event dedup.
