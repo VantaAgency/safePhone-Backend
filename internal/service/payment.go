@@ -43,6 +43,7 @@ type PaymentService struct {
 	userRepo         domain.UserRepository
 	deviceRepo       domain.DeviceRepository
 	partnerRepo      domain.PartnerRepository
+	commercialRepo   domain.CommercialRepository
 	webhookRepo      domain.WebhookEventRepository
 	dexpayClient     *dexpay.Client
 	pool             *pgxpool.Pool
@@ -59,6 +60,7 @@ func NewPaymentService(
 	userRepo domain.UserRepository,
 	deviceRepo domain.DeviceRepository,
 	partnerRepo domain.PartnerRepository,
+	commercialRepo domain.CommercialRepository,
 	webhookRepo domain.WebhookEventRepository,
 	dexpayClient *dexpay.Client,
 	pool *pgxpool.Pool,
@@ -73,6 +75,7 @@ func NewPaymentService(
 		userRepo:         userRepo,
 		deviceRepo:       deviceRepo,
 		partnerRepo:      partnerRepo,
+		commercialRepo:   commercialRepo,
 		webhookRepo:      webhookRepo,
 		dexpayClient:     dexpayClient,
 		pool:             pool,
@@ -1293,6 +1296,9 @@ func (s *PaymentService) finalizeSuccessfulPayment(ctx context.Context, payment 
 	if appErr := s.createPartnerCommissionForFirstSuccessfulPayment(ctx, payment); appErr != nil {
 		return appErr
 	}
+	if appErr := s.createCommercialCommissionForFirstPartnerPayment(ctx, payment); appErr != nil {
+		return appErr
+	}
 
 	return nil
 }
@@ -1344,6 +1350,68 @@ func (s *PaymentService) createPartnerCommissionForFirstSuccessfulPayment(ctx co
 		Status:               "pending",
 	}
 	if err := s.partnerRepo.CreateCommission(ctx, commission); err != nil {
+		return domain.InternalError(err)
+	}
+
+	return nil
+}
+
+func (s *PaymentService) createCommercialCommissionForFirstPartnerPayment(ctx context.Context, payment *domain.Payment) *domain.AppError {
+	if payment == nil || s.partnerRepo == nil || s.commercialRepo == nil || !isSuccessfulPaymentStatus(payment.Status) {
+		return nil
+	}
+
+	firstSuccessfulPayment, err := s.repo.GetFirstSuccessfulByUser(ctx, payment.OrgID, payment.UserID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if firstSuccessfulPayment == nil || firstSuccessfulPayment.ID != payment.ID {
+		return nil
+	}
+
+	attributedClient, err := s.partnerRepo.GetClientByLinkedUser(ctx, payment.OrgID, payment.UserID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if attributedClient == nil || attributedClient.PartnerID == uuid.Nil {
+		return nil
+	}
+
+	partner, err := s.partnerRepo.GetByID(ctx, attributedClient.PartnerID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if partner == nil || partner.OrgID != payment.OrgID || partner.CommercialID == nil || strings.TrimSpace(partner.Status) != "active" {
+		return nil
+	}
+
+	commercial, err := s.commercialRepo.GetProfileByID(ctx, payment.OrgID, *partner.CommercialID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if commercial == nil || strings.TrimSpace(commercial.Status) != "active" {
+		return nil
+	}
+
+	paymentID := payment.ID
+	planID := payment.PlanID
+	clientUserID := payment.UserID
+	partnerClientID := attributedClient.ID
+
+	commission := &domain.CommercialCommission{
+		OrgID:                payment.OrgID,
+		CommercialID:         commercial.ID,
+		PartnerID:            partner.ID,
+		PartnerClientID:      &partnerClientID,
+		ClientUserID:         &clientUserID,
+		PaymentID:            &paymentID,
+		PlanID:               &planID,
+		BaseAmountXOF:        payment.AmountXOF,
+		CommissionPercentage: commercial.CommissionPercentage,
+		CommissionAmountXOF:  calculateCommissionAmountXOF(payment.AmountXOF, commercial.CommissionPercentage),
+		Status:               "pending",
+	}
+	if err := s.commercialRepo.CreateCommissionForFirstPartnerPayment(ctx, commission); err != nil {
 		return domain.InternalError(err)
 	}
 

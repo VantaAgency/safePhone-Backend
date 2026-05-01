@@ -15,11 +15,12 @@ import (
 
 // CreatePartnerApplicationRequest is the request body for a partner application.
 type CreatePartnerApplicationRequest struct {
-	StoreName        string `json:"store_name" validate:"required,min=1,max=200"`
-	FullName         string `json:"full_name" validate:"required,min=1,max=200"`
-	Phone            string `json:"phone" validate:"required,min=1,max=30"`
-	City             string `json:"city" validate:"required,min=1,max=100"`
-	BusinessLocation string `json:"business_location" validate:"required,min=1,max=200"`
+	StoreName              string `json:"store_name" validate:"required,min=1,max=200"`
+	FullName               string `json:"full_name" validate:"required,min=1,max=200"`
+	Phone                  string `json:"phone" validate:"required,min=1,max=30"`
+	City                   string `json:"city" validate:"required,min=1,max=100"`
+	BusinessLocation       string `json:"business_location" validate:"required,min=1,max=200"`
+	CommercialReferralCode string `json:"commercial_referral_code" validate:"omitempty,max=16"`
 }
 
 // ReviewPartnerApplicationRequest is the request body for admin review.
@@ -58,7 +59,7 @@ func (h *PartnerApplicationHandler) Submit(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	app, appErr := h.svc.Submit(r.Context(), ac, req.StoreName, req.FullName, req.Phone, req.City, req.BusinessLocation)
+	app, appErr := h.svc.Submit(r.Context(), ac, req.StoreName, req.FullName, req.Phone, req.City, req.BusinessLocation, req.CommercialReferralCode)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

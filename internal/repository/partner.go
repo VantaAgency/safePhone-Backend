@@ -53,7 +53,8 @@ func (r *PartnerRepository) GetByID(ctx context.Context, partnerID uuid.UUID) (*
 	defer cancel()
 
 	return r.scanPartnerRow(r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, store_name, city, business_location, referral_code, commission_percentage, status, created_at, updated_at
+		SELECT id, org_id, user_id, store_name, city, business_location, referral_code, commission_percentage,
+		       commercial_id, acquisition_source, status, created_at, updated_at
 		FROM partners
 		WHERE id = $1
 	`, partnerID))
@@ -65,7 +66,8 @@ func (r *PartnerRepository) GetByUser(ctx context.Context, orgID, userID uuid.UU
 	defer cancel()
 
 	return r.scanPartnerRow(r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, store_name, city, business_location, referral_code, commission_percentage, status, created_at, updated_at
+		SELECT id, org_id, user_id, store_name, city, business_location, referral_code, commission_percentage,
+		       commercial_id, acquisition_source, status, created_at, updated_at
 		FROM partners
 		WHERE org_id = $1 AND user_id = $2
 	`, orgID, userID))
@@ -77,7 +79,8 @@ func (r *PartnerRepository) GetByReferralCode(ctx context.Context, code string) 
 	defer cancel()
 
 	return r.scanPartnerRow(r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, store_name, city, business_location, referral_code, commission_percentage, status, created_at, updated_at
+		SELECT id, org_id, user_id, store_name, city, business_location, referral_code, commission_percentage,
+		       commercial_id, acquisition_source, status, created_at, updated_at
 		FROM partners
 		WHERE referral_code = $1
 	`, code))
@@ -707,12 +710,19 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 			p.id::text,
 			p.store_name,
 			u.full_name AS owner_name,
+			u.email AS owner_email,
+			u.phone AS owner_phone,
 			p.city,
 			p.business_location,
 			p.referral_code,
 			p.commission_percentage,
+			p.commercial_id::text,
+			cu.full_name AS commercial_name,
+			cu.email AS commercial_email,
+			p.acquisition_source,
 			COALESCE(client_stats.clients_count, 0) AS clients_count,
 			COALESCE(client_stats.active_clients, 0) AS active_clients,
+			first_payment.status AS first_payment_status,
 			COALESCE(referral_stats.referral_visits, 0) AS referral_visits,
 			COALESCE(referral_stats.qr_referral_visits, 0) AS qr_referral_visits,
 			COALESCE(referral_stats.referral_signups, 0) AS referral_signups,
@@ -724,6 +734,8 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 			to_char(p.created_at, 'Mon YYYY') AS joined_at
 		FROM partners p
 		JOIN users u ON u.id = p.user_id
+		LEFT JOIN commercial_profiles cp ON cp.id = p.commercial_id
+		LEFT JOIN users cu ON cu.id = cp.user_id
 		LEFT JOIN LATERAL (
 			SELECT
 				COUNT(*) AS clients_count,
@@ -731,6 +743,17 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 			FROM partner_clients pc
 			WHERE pc.partner_id = p.id
 		) AS client_stats ON TRUE
+		LEFT JOIN LATERAL (
+			SELECT pay.status::text AS status
+			FROM partner_clients pc
+			JOIN payments pay
+			  ON pay.org_id = pc.org_id
+			 AND pay.user_id = pc.linked_user_id
+			WHERE pc.partner_id = p.id
+			  AND pay.status IN ('completed', 'refunded')
+			ORDER BY COALESCE(pay.paid_at, pay.created_at) ASC, pay.created_at ASC, pay.id ASC
+			LIMIT 1
+		) AS first_payment ON TRUE
 		LEFT JOIN LATERAL (
 			SELECT
 				(SELECT COUNT(*) FROM partner_referral_visits prv WHERE prv.partner_id = p.id) AS referral_visits,
@@ -759,8 +782,9 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 	for rows.Next() {
 		var ap domain.AdminPartner
 		if err := rows.Scan(
-			&ap.ID, &ap.StoreName, &ap.OwnerName, &ap.City, &ap.BusinessLocation, &ap.ReferralCode, &ap.CommissionPercentage,
-			&ap.ClientsCount, &ap.ActiveClients, &ap.ReferralVisits, &ap.QRReferralVisits, &ap.ReferralSignups, &ap.ReferralActivations, &ap.TotalCommissionEarnedXOF,
+			&ap.ID, &ap.StoreName, &ap.OwnerName, &ap.OwnerEmail, &ap.OwnerPhone, &ap.City, &ap.BusinessLocation, &ap.ReferralCode, &ap.CommissionPercentage,
+			&ap.CommercialID, &ap.CommercialName, &ap.CommercialEmail, &ap.AcquisitionSource,
+			&ap.ClientsCount, &ap.ActiveClients, &ap.FirstPaymentStatus, &ap.ReferralVisits, &ap.QRReferralVisits, &ap.ReferralSignups, &ap.ReferralActivations, &ap.TotalCommissionEarnedXOF,
 			&ap.TotalCommissionOwedXOF, &ap.TotalCommissionPaidXOF, &ap.Status, &ap.JoinedAt,
 		); err != nil {
 			return nil, err
@@ -943,6 +967,8 @@ func (r *PartnerRepository) scanPartnerRow(row pgx.Row) (*domain.Partner, error)
 		&partner.BusinessLocation,
 		&partner.ReferralCode,
 		&partner.CommissionPercentage,
+		&partner.CommercialID,
+		&partner.AcquisitionSource,
 		&partner.Status,
 		&partner.CreatedAt,
 		&partner.UpdatedAt,

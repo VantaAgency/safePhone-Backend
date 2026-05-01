@@ -76,6 +76,24 @@ type AdminRepository interface {
 	UpdateEmployeeStatus(ctx context.Context, orgID, userID, updatedBy uuid.UUID, status EmployeeAccountStatus, suspendedReason *string) (*EmployeeProfile, error)
 }
 
+// CommercialRepository provides commercial acquisition workflow persistence.
+type CommercialRepository interface {
+	CreateProfile(ctx context.Context, profile *CommercialProfile) error
+	GetProfileByUser(ctx context.Context, orgID, userID uuid.UUID) (*CommercialProfile, error)
+	GetProfileByID(ctx context.Context, orgID, commercialID uuid.UUID) (*CommercialProfile, error)
+	GetProfileByReferralCode(ctx context.Context, orgID uuid.UUID, code string) (*CommercialProfile, error)
+	ListPartners(ctx context.Context, orgID, commercialID uuid.UUID, limit, offset int) ([]CommercialPartner, error)
+	ListCommissions(ctx context.Context, orgID, commercialID uuid.UUID, limit, offset int) ([]CommercialCommissionView, error)
+	ListActivityReports(ctx context.Context, orgID uuid.UUID, commercialID *uuid.UUID, partnerID *uuid.UUID, limit, offset int) ([]CommercialActivityReportView, error)
+	CreateActivityReport(ctx context.Context, report *CommercialActivityReport) error
+	GetActivityReport(ctx context.Context, orgID, reportID uuid.UUID) (*CommercialActivityReport, error)
+	ListAdminCommercials(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]AdminCommercialListItem, error)
+	GetAdminCommercial(ctx context.Context, orgID, commercialID uuid.UUID) (*AdminCommercialDetail, error)
+	UpdateStatus(ctx context.Context, orgID, commercialID uuid.UUID, status string) (*CommercialProfile, error)
+	UpdateCommissionPercentage(ctx context.Context, orgID, commercialID uuid.UUID, percentage float64) (*CommercialProfile, error)
+	CreateCommissionForFirstPartnerPayment(ctx context.Context, commission *CommercialCommission) error
+}
+
 // EmployeeRepository provides operational read models and workflow persistence for employees.
 type EmployeeRepository interface {
 	GetOverviewMetrics(ctx context.Context, orgID uuid.UUID) (*EmployeeOverviewMetrics, error)
