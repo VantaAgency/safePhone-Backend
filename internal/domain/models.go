@@ -198,6 +198,9 @@ type PartnerApplication struct {
 	BusinessLocation     string     `json:"business_location"`
 	Status               string     `json:"status"`
 	CommissionPercentage *float64   `json:"commission_percentage,omitempty"`
+	CommercialID         *uuid.UUID `json:"commercial_id,omitempty"`
+	CommercialName       *string    `json:"commercial_name,omitempty"`
+	AcquisitionSource    string     `json:"acquisition_source"`
 	ReviewedBy           *uuid.UUID `json:"reviewed_by,omitempty"`
 	RejectionReason      *string    `json:"rejection_reason,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
@@ -217,6 +220,9 @@ type AdminPartnerApplication struct {
 	BusinessLocation     string     `json:"business_location"`
 	Status               string     `json:"status"`
 	CommissionPercentage *float64   `json:"commission_percentage,omitempty"`
+	CommercialID         *string    `json:"commercial_id,omitempty"`
+	CommercialName       *string    `json:"commercial_name,omitempty"`
+	AcquisitionSource    string     `json:"acquisition_source"`
 	RejectionReason      *string    `json:"rejection_reason,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
 	ReviewedAt           *time.Time `json:"reviewed_at,omitempty"`
@@ -660,17 +666,141 @@ type Payment struct {
 
 // Partner represents a registered partner store.
 type Partner struct {
+	ID                   uuid.UUID  `json:"id"`
+	OrgID                uuid.UUID  `json:"org_id"`
+	UserID               uuid.UUID  `json:"user_id"`
+	StoreName            string     `json:"store_name"`
+	City                 string     `json:"city"`
+	BusinessLocation     string     `json:"business_location"`
+	ReferralCode         string     `json:"referral_code"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	CommercialID         *uuid.UUID `json:"commercial_id,omitempty"`
+	AcquisitionSource    string     `json:"acquisition_source"`
+	Status               string     `json:"status"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+// CommercialProfile represents a SafePhone commercial field agent.
+type CommercialProfile struct {
 	ID                   uuid.UUID `json:"id"`
 	OrgID                uuid.UUID `json:"org_id"`
 	UserID               uuid.UUID `json:"user_id"`
-	StoreName            string    `json:"store_name"`
-	City                 string    `json:"city"`
-	BusinessLocation     string    `json:"business_location"`
 	ReferralCode         string    `json:"referral_code"`
-	CommissionPercentage float64   `json:"commission_percentage"`
 	Status               string    `json:"status"`
+	CommissionPercentage float64   `json:"commission_percentage"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// CommercialPartner is the commercial-facing view of a partner they acquired.
+type CommercialPartner struct {
+	ID                    string     `json:"id"`
+	StoreName             string     `json:"store_name"`
+	OwnerName             string     `json:"owner_name"`
+	OwnerEmail            string     `json:"owner_email"`
+	Phone                 *string    `json:"phone,omitempty"`
+	City                  string     `json:"city"`
+	BusinessLocation      string     `json:"business_location"`
+	Status                string     `json:"status"`
+	ApplicationStatus     *string    `json:"application_status,omitempty"`
+	ApprovalDate          *time.Time `json:"approval_date,omitempty"`
+	PartnerCommissionRate float64    `json:"partner_commission_percentage"`
+	ClientsCount          int        `json:"clients_count"`
+	ActiveClients         int        `json:"active_clients"`
+	FirstPaymentStatus    *string    `json:"first_payment_status,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+}
+
+// CommercialCommission records a one-time commercial commission for a partner's first client payment.
+type CommercialCommission struct {
+	ID                   uuid.UUID  `json:"id"`
+	OrgID                uuid.UUID  `json:"org_id"`
+	CommercialID         uuid.UUID  `json:"commercial_id"`
+	PartnerID            uuid.UUID  `json:"partner_id"`
+	PartnerClientID      *uuid.UUID `json:"partner_client_id,omitempty"`
+	ClientUserID         *uuid.UUID `json:"client_user_id,omitempty"`
+	PaymentID            *uuid.UUID `json:"payment_id,omitempty"`
+	PlanID               *uuid.UUID `json:"plan_id,omitempty"`
+	BaseAmountXOF        int        `json:"base_amount_xof"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	CommissionAmountXOF  int        `json:"commission_amount_xof"`
+	Status               string     `json:"status"`
+	PaidAt               *time.Time `json:"paid_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+// CommercialCommissionView is a read model for commercial/admin commission lists.
+type CommercialCommissionView struct {
+	ID                   string     `json:"id"`
+	CommercialID         string     `json:"commercial_id"`
+	CommercialName       string     `json:"commercial_name"`
+	PartnerID            string     `json:"partner_id"`
+	PartnerStoreName     string     `json:"partner_store_name"`
+	PartnerClientID      *string    `json:"partner_client_id,omitempty"`
+	ClientUserID         *string    `json:"client_user_id,omitempty"`
+	ClientName           string     `json:"client_name"`
+	PaymentID            *string    `json:"payment_id,omitempty"`
+	PlanID               *string    `json:"plan_id,omitempty"`
+	PlanNameFR           *string    `json:"plan_name_fr,omitempty"`
+	PlanNameEN           *string    `json:"plan_name_en,omitempty"`
+	BaseAmountXOF        int        `json:"base_amount_xof"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	CommissionAmountXOF  int        `json:"commission_amount_xof"`
+	Status               string     `json:"status"`
+	PaidAt               *time.Time `json:"paid_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+}
+
+// CommercialActivityReport stores field activity proof submitted by a commercial.
+type CommercialActivityReport struct {
+	ID               uuid.UUID  `json:"id"`
+	OrgID            uuid.UUID  `json:"org_id"`
+	CommercialID     uuid.UUID  `json:"commercial_id"`
+	PartnerID        *uuid.UUID `json:"partner_id,omitempty"`
+	ProspectName     *string    `json:"prospect_name,omitempty"`
+	ActivityType     string     `json:"activity_type"`
+	PhotoURL         string     `json:"photo_url"`
+	PhotoStoragePath string     `json:"-"`
+	PhotoContentType string     `json:"-"`
+	Comment          string     `json:"comment"`
+	City             *string    `json:"city,omitempty"`
+	Location         *string    `json:"location,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
+// CommercialActivityReportView decorates activity reports with names/statuses.
+type CommercialActivityReportView struct {
+	ID               string    `json:"id"`
+	CommercialID     string    `json:"commercial_id"`
+	CommercialName   string    `json:"commercial_name"`
+	PartnerID        *string   `json:"partner_id,omitempty"`
+	PartnerStoreName *string   `json:"partner_store_name,omitempty"`
+	PartnerStatus    *string   `json:"partner_status,omitempty"`
+	ProspectName     *string   `json:"prospect_name,omitempty"`
+	ActivityType     string    `json:"activity_type"`
+	PhotoURL         string    `json:"photo_url"`
+	Comment          string    `json:"comment"`
+	City             *string   `json:"city,omitempty"`
+	Location         *string   `json:"location,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+// CommercialDashboardOverview combines commercial metrics and recent activity.
+type CommercialDashboardOverview struct {
+	Profile                    CommercialProfile              `json:"profile"`
+	ReferralLink               string                         `json:"referral_link"`
+	PartnersBrought            int                            `json:"partners_brought"`
+	PendingPartnerApplications int                            `json:"pending_partner_applications"`
+	ApprovedPartners           int                            `json:"approved_partners"`
+	ActivePartners             int                            `json:"active_partners"`
+	FirstClientConversions     int                            `json:"first_client_conversions"`
+	CommissionEarnedXOF        int                            `json:"commission_earned_xof"`
+	CommissionPendingXOF       int                            `json:"commission_pending_xof"`
+	RecentPartners             []CommercialPartner            `json:"recent_partners"`
+	RecentReports              []CommercialActivityReportView `json:"recent_reports"`
+	RecentCommissions          []CommercialCommissionView     `json:"recent_commissions"`
 }
 
 // PartnerClient represents a client invited by a partner.
@@ -847,12 +977,19 @@ type AdminPartner struct {
 	ID                       string  `json:"id"`
 	StoreName                string  `json:"store_name"`
 	OwnerName                string  `json:"owner_name"`
+	OwnerEmail               string  `json:"owner_email"`
+	OwnerPhone               *string `json:"owner_phone,omitempty"`
 	City                     string  `json:"city"`
 	BusinessLocation         string  `json:"business_location"`
 	ReferralCode             string  `json:"referral_code"`
 	CommissionPercentage     float64 `json:"commission_percentage"`
+	CommercialID             *string `json:"commercial_id,omitempty"`
+	CommercialName           *string `json:"commercial_name,omitempty"`
+	CommercialEmail          *string `json:"commercial_email,omitempty"`
+	AcquisitionSource        string  `json:"acquisition_source"`
 	ClientsCount             int     `json:"clients_count"`
 	ActiveClients            int     `json:"active_clients"`
+	FirstPaymentStatus       *string `json:"first_payment_status,omitempty"`
 	ReferralVisits           int     `json:"referral_visits"`
 	QRReferralVisits         int     `json:"qr_referral_visits"`
 	ReferralSignups          int     `json:"referral_signups"`
@@ -903,4 +1040,30 @@ type AdminPartnerCommission struct {
 	Status               string     `json:"status"`
 	PaidAt               *time.Time `json:"paid_at,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
+}
+
+// AdminCommercialListItem summarizes commercial performance for admin.
+type AdminCommercialListItem struct {
+	ID                   string     `json:"id"`
+	UserID               string     `json:"user_id"`
+	Name                 string     `json:"name"`
+	Email                string     `json:"email"`
+	Phone                *string    `json:"phone,omitempty"`
+	Status               string     `json:"status"`
+	ReferralCode         string     `json:"referral_code"`
+	CommissionPercentage float64    `json:"commission_percentage"`
+	PartnersBrought      int        `json:"partners_brought"`
+	ApprovedPartners     int        `json:"approved_partners"`
+	PendingPartners      int        `json:"pending_partners"`
+	CommissionEarnedXOF  int        `json:"commission_earned_xof"`
+	LastActivityDate     *time.Time `json:"last_activity_date,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+}
+
+// AdminCommercialDetail contains one commercial plus their partners, reports, and commissions.
+type AdminCommercialDetail struct {
+	Commercial  AdminCommercialListItem        `json:"commercial"`
+	Partners    []CommercialPartner            `json:"partners"`
+	Reports     []CommercialActivityReportView `json:"reports"`
+	Commissions []CommercialCommissionView     `json:"commissions"`
 }

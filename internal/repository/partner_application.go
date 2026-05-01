@@ -28,10 +28,13 @@ func (r *PartnerApplicationRepository) Create(ctx context.Context, app *domain.P
 	defer cancel()
 
 	return r.pool.QueryRow(ctx, `
-		INSERT INTO partner_applications (org_id, user_id, store_name, full_name, phone, city, business_location)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO partner_applications (
+			org_id, user_id, store_name, full_name, phone, city, business_location,
+			commercial_id, acquisition_source
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, status, created_at
-	`, app.OrgID, app.UserID, app.StoreName, app.FullName, app.Phone, app.City, app.BusinessLocation).Scan(&app.ID, &app.Status, &app.CreatedAt)
+	`, app.OrgID, app.UserID, app.StoreName, app.FullName, app.Phone, app.City, app.BusinessLocation, app.CommercialID, app.AcquisitionSource).Scan(&app.ID, &app.Status, &app.CreatedAt)
 }
 
 // GetByID returns a partner application by its ID.
@@ -43,15 +46,18 @@ func (r *PartnerApplicationRepository) GetByID(ctx context.Context, id uuid.UUID
 	err := r.pool.QueryRow(ctx, `
 		SELECT pa.id, pa.org_id, pa.user_id, pa.store_name, pa.full_name, pa.phone, pa.city,
 		       pa.business_location, pa.status, p.commission_percentage,
+		       pa.commercial_id, cu.full_name AS commercial_name, pa.acquisition_source,
 		       pa.reviewed_by, pa.rejection_reason, pa.created_at, pa.reviewed_at
 		FROM partner_applications pa
 		LEFT JOIN partners p
 		  ON p.org_id = pa.org_id
 		 AND p.user_id = pa.user_id
+		LEFT JOIN commercial_profiles cp ON cp.id = pa.commercial_id
+		LEFT JOIN users cu ON cu.id = cp.user_id
 		WHERE pa.id = $1
 	`, id).Scan(
 		&app.ID, &app.OrgID, &app.UserID, &app.StoreName, &app.FullName, &app.Phone, &app.City,
-		&app.BusinessLocation, &app.Status, &app.CommissionPercentage, &app.ReviewedBy,
+		&app.BusinessLocation, &app.Status, &app.CommissionPercentage, &app.CommercialID, &app.CommercialName, &app.AcquisitionSource, &app.ReviewedBy,
 		&app.RejectionReason, &app.CreatedAt, &app.ReviewedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -72,17 +78,20 @@ func (r *PartnerApplicationRepository) GetByUser(ctx context.Context, orgID, use
 	err := r.pool.QueryRow(ctx, `
 		SELECT pa.id, pa.org_id, pa.user_id, pa.store_name, pa.full_name, pa.phone, pa.city,
 		       pa.business_location, pa.status, p.commission_percentage,
+		       pa.commercial_id, cu.full_name AS commercial_name, pa.acquisition_source,
 		       pa.reviewed_by, pa.rejection_reason, pa.created_at, pa.reviewed_at
 		FROM partner_applications pa
 		LEFT JOIN partners p
 		  ON p.org_id = pa.org_id
 		 AND p.user_id = pa.user_id
+		LEFT JOIN commercial_profiles cp ON cp.id = pa.commercial_id
+		LEFT JOIN users cu ON cu.id = cp.user_id
 		WHERE pa.org_id = $1 AND pa.user_id = $2
 		ORDER BY pa.created_at DESC
 		LIMIT 1
 	`, orgID, userID).Scan(
 		&app.ID, &app.OrgID, &app.UserID, &app.StoreName, &app.FullName, &app.Phone, &app.City,
-		&app.BusinessLocation, &app.Status, &app.CommissionPercentage, &app.ReviewedBy,
+		&app.BusinessLocation, &app.Status, &app.CommissionPercentage, &app.CommercialID, &app.CommercialName, &app.AcquisitionSource, &app.ReviewedBy,
 		&app.RejectionReason, &app.CreatedAt, &app.ReviewedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -128,12 +137,15 @@ func (r *PartnerApplicationRepository) ListByOrg(ctx context.Context, orgID uuid
 		query = `
 			SELECT pa.id::text, pa.org_id::text, pa.user_id::text,
 			       pa.store_name, pa.full_name, pa.phone, u.email, pa.city, pa.business_location,
-			       pa.status, p.commission_percentage, pa.rejection_reason, pa.created_at, pa.reviewed_at
+			       pa.status, p.commission_percentage, pa.commercial_id::text, cu.full_name AS commercial_name,
+			       pa.acquisition_source, pa.rejection_reason, pa.created_at, pa.reviewed_at
 			FROM partner_applications pa
 			JOIN users u ON u.id = pa.user_id
 			LEFT JOIN partners p
 			  ON p.org_id = pa.org_id
 			 AND p.user_id = pa.user_id
+			LEFT JOIN commercial_profiles cp ON cp.id = pa.commercial_id
+			LEFT JOIN users cu ON cu.id = cp.user_id
 			WHERE pa.org_id = $1 AND pa.status = $4
 			ORDER BY pa.created_at DESC
 			LIMIT $2 OFFSET $3
@@ -143,12 +155,15 @@ func (r *PartnerApplicationRepository) ListByOrg(ctx context.Context, orgID uuid
 		query = `
 			SELECT pa.id::text, pa.org_id::text, pa.user_id::text,
 			       pa.store_name, pa.full_name, pa.phone, u.email, pa.city, pa.business_location,
-			       pa.status, p.commission_percentage, pa.rejection_reason, pa.created_at, pa.reviewed_at
+			       pa.status, p.commission_percentage, pa.commercial_id::text, cu.full_name AS commercial_name,
+			       pa.acquisition_source, pa.rejection_reason, pa.created_at, pa.reviewed_at
 			FROM partner_applications pa
 			JOIN users u ON u.id = pa.user_id
 			LEFT JOIN partners p
 			  ON p.org_id = pa.org_id
 			 AND p.user_id = pa.user_id
+			LEFT JOIN commercial_profiles cp ON cp.id = pa.commercial_id
+			LEFT JOIN users cu ON cu.id = cp.user_id
 			WHERE pa.org_id = $1
 			ORDER BY pa.created_at DESC
 			LIMIT $2 OFFSET $3
@@ -168,7 +183,7 @@ func (r *PartnerApplicationRepository) ListByOrg(ctx context.Context, orgID uuid
 		if err := rows.Scan(
 			&a.ID, &a.OrgID, &a.UserID,
 			&a.StoreName, &a.FullName, &a.Phone, &a.Email, &a.City, &a.BusinessLocation,
-			&a.Status, &a.CommissionPercentage, &a.RejectionReason, &a.CreatedAt, &a.ReviewedAt,
+			&a.Status, &a.CommissionPercentage, &a.CommercialID, &a.CommercialName, &a.AcquisitionSource, &a.RejectionReason, &a.CreatedAt, &a.ReviewedAt,
 		); err != nil {
 			return nil, err
 		}

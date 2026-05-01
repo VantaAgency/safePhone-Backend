@@ -85,6 +85,7 @@ func main() {
 	contactRepo := repository.NewContactRepository(pool)
 	partnerAppRepo := repository.NewPartnerApplicationRepository(pool)
 	partnerRepo := repository.NewPartnerRepository(pool)
+	commercialRepo := repository.NewCommercialRepository(pool)
 	repairRepo := repository.NewRepairRepository(pool)
 	webhookEventRepo := repository.NewWebhookEventRepository(pool)
 
@@ -125,10 +126,11 @@ func main() {
 	deviceSvc := service.NewDeviceService(deviceRepo, subRepo)
 	subSvc := service.NewSubscriptionService(subRepo, planRepo, cfg.IsDevelopment())
 	claimSvc := service.NewClaimService(claimRepo, deviceRepo, subRepo)
-	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, webhookEventRepo, dexpayClient, pool, cfg.FrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
+	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, commercialRepo, webhookEventRepo, dexpayClient, pool, cfg.FrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
 	contactSvc := service.NewContactService(contactRepo)
-	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, pool)
+	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, commercialRepo, pool)
 	partnerSvc := service.NewPartnerService(partnerRepo, userRepo, paymentRepo, cfg.FrontendURL)
+	commercialSvc := service.NewCommercialService(commercialRepo, partnerRepo, cfg.FrontendURL)
 	repairSvc := service.NewRepairService(repairRepo)
 	employeeSvc := service.NewEmployeeService(employeeRepo, userRepo, subRepo, claimRepo, repairSvc)
 
@@ -146,6 +148,7 @@ func main() {
 	contactH := handler.NewContactHandler(contactSvc)
 	partnerAppH := handler.NewPartnerApplicationHandler(partnerAppSvc)
 	partnerH := handler.NewPartnerHandler(partnerSvc)
+	commercialH := handler.NewCommercialHandler(commercialSvc)
 	repairH := handler.NewRepairHandler(repairSvc)
 	webhookH := handler.NewWebhookHandler(paymentSvc, cfg.DexpayAPISecret, cfg.IsDevelopment())
 
@@ -242,6 +245,18 @@ func main() {
 			r.Post("/partner-invitations/{token}/claim", partnerH.ClaimInvitation)
 			r.Post("/partner-referrals/{code}/claim", partnerH.ClaimReferral)
 
+			// Commercial routes
+			r.Route("/commercial", func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleCommercial, auth.RoleAdmin))
+
+				r.Get("/overview", commercialH.Overview)
+				r.Get("/partners", commercialH.ListPartners)
+				r.Get("/commissions", commercialH.ListCommissions)
+				r.Get("/activity-reports", commercialH.ListActivityReports)
+				r.Post("/activity-reports", commercialH.CreateActivityReport)
+				r.Get("/activity-reports/{id}/photo", commercialH.ActivityReportPhoto)
+			})
+
 			// Admin routes
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(auth.RequireRole(auth.RoleAdmin))
@@ -253,6 +268,11 @@ func main() {
 				r.Get("/employees", adminH.ListEmployees)
 				r.Get("/employees/{id}", adminH.GetEmployee)
 				r.Patch("/employees/{id}/status", adminH.UpdateEmployeeStatus)
+				r.Get("/commercials", commercialH.AdminListCommercials)
+				r.Get("/commercials/activity-reports", commercialH.AdminListActivityReports)
+				r.Get("/commercials/{id}", commercialH.AdminGetCommercial)
+				r.Patch("/commercials/{id}/status", commercialH.AdminUpdateStatus)
+				r.Patch("/commercials/{id}/commission", commercialH.AdminUpdateCommission)
 				r.Get("/claims", claimH.AdminList)
 				r.Put("/claims/{id}/status", claimH.AdminUpdateStatus)
 				r.Get("/repairs", repairH.AdminList)

@@ -28,6 +28,7 @@ tmp/
 # Logs
 *.log
 logs/
+uploads/
 
 # OS / editor noise
 .DS_Store

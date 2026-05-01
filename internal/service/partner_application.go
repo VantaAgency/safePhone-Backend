@@ -16,10 +16,11 @@ import (
 
 // PartnerApplicationService handles partner application submissions and review.
 type PartnerApplicationService struct {
-	repo        domain.PartnerApplicationRepository
-	userRepo    domain.UserRepository
-	partnerRepo domain.PartnerRepository
-	pool        *pgxpool.Pool
+	repo           domain.PartnerApplicationRepository
+	userRepo       domain.UserRepository
+	partnerRepo    domain.PartnerRepository
+	commercialRepo domain.CommercialRepository
+	pool           *pgxpool.Pool
 }
 
 // NewPartnerApplicationService creates a new partner application service.
@@ -27,18 +28,20 @@ func NewPartnerApplicationService(
 	repo domain.PartnerApplicationRepository,
 	userRepo domain.UserRepository,
 	partnerRepo domain.PartnerRepository,
+	commercialRepo domain.CommercialRepository,
 	pool *pgxpool.Pool,
 ) *PartnerApplicationService {
 	return &PartnerApplicationService{
-		repo:        repo,
-		userRepo:    userRepo,
-		partnerRepo: partnerRepo,
-		pool:        pool,
+		repo:           repo,
+		userRepo:       userRepo,
+		partnerRepo:    partnerRepo,
+		commercialRepo: commercialRepo,
+		pool:           pool,
 	}
 }
 
 // Submit saves a new partner application linked to the authenticated user.
-func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthContext, storeName, fullName, phone, city, businessLocation string) (*domain.PartnerApplication, *domain.AppError) {
+func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthContext, storeName, fullName, phone, city, businessLocation, commercialReferralCode string) (*domain.PartnerApplication, *domain.AppError) {
 	existing, err := s.repo.GetByUser(ctx, ac.OrgID, ac.UserID)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -47,14 +50,33 @@ func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthCon
 		return nil, domain.Conflict("you already have a pending partner application")
 	}
 
+	var commercialID *uuid.UUID
+	acquisitionSource := "direct"
+	if commercialReferralCode != "" {
+		if s.commercialRepo == nil {
+			return nil, domain.BadRequest("commercial referral is not available")
+		}
+		profile, err := s.commercialRepo.GetProfileByReferralCode(ctx, ac.OrgID, normalizeReferralCode(commercialReferralCode))
+		if err != nil {
+			return nil, domain.InternalError(err)
+		}
+		if profile == nil || profile.Status != "active" {
+			return nil, domain.NotFound("commercial referral")
+		}
+		commercialID = &profile.ID
+		acquisitionSource = "commercial_referral_link"
+	}
+
 	app := &domain.PartnerApplication{
-		OrgID:            ac.OrgID,
-		UserID:           ac.UserID,
-		StoreName:        storeName,
-		FullName:         fullName,
-		Phone:            phone,
-		City:             city,
-		BusinessLocation: businessLocation,
+		OrgID:             ac.OrgID,
+		UserID:            ac.UserID,
+		StoreName:         storeName,
+		FullName:          fullName,
+		Phone:             phone,
+		City:              city,
+		BusinessLocation:  businessLocation,
+		CommercialID:      commercialID,
+		AcquisitionSource: acquisitionSource,
 	}
 	if err := s.repo.Create(ctx, app); err != nil {
 		return nil, domain.InternalError(err)
@@ -135,10 +157,11 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 			// 2. Create the partner record with the admin-assigned commission percentage.
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO partners (
-					org_id, user_id, store_name, city, business_location, referral_code, commission_percentage, status
+					org_id, user_id, store_name, city, business_location, referral_code, commission_percentage,
+					commercial_id, acquisition_source, status
 				)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-			`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, referralCode, *commissionPercentage); err != nil {
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+			`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, referralCode, *commissionPercentage, app.CommercialID, app.AcquisitionSource); err != nil {
 				return err
 			}
 
