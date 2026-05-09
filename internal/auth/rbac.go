@@ -22,7 +22,16 @@ func RequireRole(allowed ...Role) func(http.Handler) http.Handler {
 				return
 			}
 
-			if !allowedSet[ac.Role] {
+			allowed := allowedSet[ac.Role]
+			if !allowed {
+				for _, role := range ac.Roles {
+					if allowedSet[role] {
+						allowed = true
+						break
+					}
+				}
+			}
+			if !allowed {
 				respond.Error(w, r, domain.Forbidden("insufficient permissions"))
 				return
 			}

@@ -438,7 +438,7 @@ func (r *AdminRepository) ListEmployees(
 		LEFT JOIN last_login ll ON ll.better_auth_id = u.better_auth_id
 		WHERE u.org_id = $1
 		  AND u.deleted_at IS NULL
-		  AND u.role = 'employee'
+		  AND (u.role = 'employee' OR ep.user_id IS NOT NULL)
 		  AND (
 			$2 = ''
 			OR lower(u.full_name) LIKE '%' || lower($2) || '%'
@@ -608,7 +608,7 @@ func (r *AdminRepository) GetEmployee(ctx context.Context, orgID, userID uuid.UU
 		 AND ep.org_id = u.org_id
 		WHERE u.org_id = $1
 		  AND u.id = $2
-		  AND u.role = 'employee'
+		  AND (u.role = 'employee' OR ep.user_id IS NOT NULL)
 		  AND u.deleted_at IS NULL
 	`, orgID, userID).Scan(
 		&item.ID,
@@ -721,7 +721,15 @@ func (r *AdminRepository) UpdateEmployeeStatus(
 		FROM users u
 		WHERE u.id = $2
 		  AND u.org_id = $1
-		  AND u.role = 'employee'
+		  AND (
+			u.role = 'employee'
+			OR EXISTS (
+				SELECT 1
+				FROM employee_profiles existing_ep
+				WHERE existing_ep.user_id = u.id
+				  AND existing_ep.org_id = u.org_id
+			)
+		  )
 		  AND u.deleted_at IS NULL
 		ON CONFLICT (user_id) DO UPDATE
 		SET status = EXCLUDED.status,

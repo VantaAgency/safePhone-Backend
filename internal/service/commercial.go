@@ -229,7 +229,7 @@ func (s *CommercialService) GetActivityReportPhoto(ctx context.Context, ac *auth
 	if report == nil {
 		return nil, domain.NotFound("activity report")
 	}
-	if ac.Role == auth.RoleAdmin {
+	if ac.HasRole(auth.RoleAdmin) {
 		return report, nil
 	}
 	profile, appErr := s.requireCommercialProfile(ctx, ac)

@@ -185,16 +185,59 @@ func (v *JWTVerifier) authenticate(next http.Handler, optional bool) http.Handle
 
 		email, _ := claims["email"].(string)
 		role, _ := claims["role"].(string)
+		roles := extractRoles(claims["roles"], role)
 
 		ac := &AuthContext{
 			UserID:  userID,
 			OrgID:   orgID,
 			Email:   email,
 			Role:    Role(role),
+			Roles:   roles,
 			TokenID: jti,
 		}
 
 		ctx := WithAuthContext(r.Context(), ac)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func extractRoles(raw any, fallback string) []Role {
+	seen := make(map[Role]bool)
+	roles := make([]Role, 0, 4)
+
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		role := Role(value)
+		if seen[role] {
+			return
+		}
+		seen[role] = true
+		roles = append(roles, role)
+	}
+
+	switch values := raw.(type) {
+	case []any:
+		for _, value := range values {
+			if role, ok := value.(string); ok {
+				add(role)
+			}
+		}
+	case []string:
+		for _, value := range values {
+			add(value)
+		}
+	case string:
+		for _, value := range strings.Split(values, ",") {
+			add(value)
+		}
+	}
+
+	add(fallback)
+	if len(roles) == 0 {
+		add(string(RoleMember))
+	}
+	return roles
 }

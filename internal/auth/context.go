@@ -27,7 +27,24 @@ type AuthContext struct {
 	OrgID   uuid.UUID
 	Email   string
 	Role    Role
+	Roles   []Role
 	TokenID string // jti — for denylist revocation checks
+}
+
+// HasRole reports whether the authenticated user has the requested role.
+func (ac *AuthContext) HasRole(role Role) bool {
+	if ac == nil {
+		return false
+	}
+	if ac.Role == role {
+		return true
+	}
+	for _, current := range ac.Roles {
+		if current == role {
+			return true
+		}
+	}
+	return false
 }
 
 type contextKey struct{}
