@@ -14,6 +14,8 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 )
 
+const defaultCommercialPartnerCommissionPercentage = 20.0
+
 // PartnerApplicationService handles partner application submissions and review.
 type PartnerApplicationService struct {
 	repo           domain.PartnerApplicationRepository
@@ -49,6 +51,9 @@ func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthCon
 	if existing != nil && existing.Status == string(domain.PartnerAppStatusPending) {
 		return nil, domain.Conflict("you already have a pending partner application")
 	}
+	if existing != nil && existing.Status == string(domain.PartnerAppStatusApproved) {
+		return nil, domain.Conflict("you are already an approved partner")
+	}
 
 	var commercialID *uuid.UUID
 	acquisitionSource := "direct"
@@ -78,7 +83,15 @@ func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthCon
 		CommercialID:      commercialID,
 		AcquisitionSource: acquisitionSource,
 	}
-	if err := s.repo.Create(ctx, app); err != nil {
+	if commercialID == nil {
+		if err := s.repo.Create(ctx, app); err != nil {
+			return nil, domain.InternalError(err)
+		}
+		return app, nil
+	}
+
+	commissionPercentage := defaultCommercialPartnerCommissionPercentage
+	if err := s.createAndApproveCommercialApplication(ctx, app, commissionPercentage); err != nil {
 		return nil, domain.InternalError(err)
 	}
 	return app, nil
@@ -114,7 +127,8 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 	if app == nil {
 		return nil, domain.NotFound("partner application")
 	}
-	if app.Status != string(domain.PartnerAppStatusPending) {
+	if app.Status != string(domain.PartnerAppStatusPending) &&
+		!(app.Status == string(domain.PartnerAppStatusApproved) && decision == "rejected") {
 		return nil, domain.Conflict("application has already been reviewed")
 	}
 
@@ -127,8 +141,8 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 		app.Status = string(domain.PartnerAppStatusRejected)
 		app.RejectionReason = rejectionReason
 
-		if err := s.repo.UpdateStatus(ctx, app); err != nil {
-			return nil, domain.InternalError(err)
+		if err := s.rejectApplication(ctx, app); err != nil {
+			return nil, err
 		}
 		return app, nil
 
@@ -138,59 +152,146 @@ func (s *PartnerApplicationService) ReviewApplication(ctx context.Context, ac *a
 		}
 		app.Status = string(domain.PartnerAppStatusApproved)
 		app.CommissionPercentage = commissionPercentage
-
-		referralCode, err := generateUniqueReferralCode(ctx, s.partnerRepo)
-		if err != nil {
-			return nil, domain.InternalError(err)
-		}
-
-		if txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
-			// 1. Update application status
-			if _, err := tx.Exec(ctx, `
-				UPDATE partner_applications
-				SET status = $2, reviewed_by = $3, reviewed_at = $4
-				WHERE id = $1
-			`, app.ID, app.Status, app.ReviewedBy, app.ReviewedAt); err != nil {
-				return err
-			}
-
-			// 2. Create the partner record with the admin-assigned commission percentage.
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO partners (
-					org_id, user_id, store_name, city, business_location, referral_code, commission_percentage,
-					commercial_id, acquisition_source, status
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
-			`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, referralCode, *commissionPercentage, app.CommercialID, app.AcquisitionSource); err != nil {
-				return err
-			}
-
-			// 3. Update user role to partner in users table
-			if _, err := tx.Exec(ctx, `
-				UPDATE users SET role = $2, updated_at = now()
-				WHERE id = $1 AND deleted_at IS NULL
-			`, app.UserID, string(auth.RolePartner)); err != nil {
-				return err
-			}
-
-			// 4. Update Better Auth "user" table role
-			if _, err := tx.Exec(ctx, `
-				UPDATE "user" SET role = $2, "updatedAt" = now()
-				WHERE id = (SELECT better_auth_id FROM users WHERE id = $1 AND deleted_at IS NULL)
-			`, app.UserID, string(auth.RolePartner)); err != nil {
-				return err
-			}
-
-			return nil
-		}); txErr != nil {
-			return nil, domain.InternalError(txErr)
-		}
-
-		return app, nil
+		return app, s.createApprovedPartner(ctx, app, *commissionPercentage)
 
 	default:
 		return nil, domain.BadRequest("decision must be 'approved' or 'rejected'")
 	}
+}
+
+func (s *PartnerApplicationService) rejectApplication(ctx context.Context, app *domain.PartnerApplication) *domain.AppError {
+	if txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE partner_applications
+			SET status = $2, reviewed_by = $3, rejection_reason = $4, reviewed_at = $5
+			WHERE id = $1
+		`, app.ID, app.Status, app.ReviewedBy, app.RejectionReason, app.ReviewedAt); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE partners
+			SET status = 'inactive', updated_at = now()
+			WHERE org_id = $1 AND user_id = $2
+		`, app.OrgID, app.UserID); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE users
+			SET role = CASE WHEN role = $2 THEN $3 ELSE role END,
+				updated_at = now()
+			WHERE id = $1 AND deleted_at IS NULL
+		`, app.UserID, string(auth.RolePartner), string(auth.RoleMember)); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE "user"
+			SET role = CASE WHEN role = $2 THEN $3 ELSE role END,
+				"updatedAt" = now()
+			WHERE id = (SELECT better_auth_id FROM users WHERE id = $1 AND deleted_at IS NULL)
+		`, app.UserID, string(auth.RolePartner), string(auth.RoleMember)); err != nil {
+			return err
+		}
+
+		return nil
+	}); txErr != nil {
+		return domain.InternalError(txErr)
+	}
+	return nil
+}
+
+func (s *PartnerApplicationService) createAndApproveCommercialApplication(ctx context.Context, app *domain.PartnerApplication, commissionPercentage float64) error {
+	now := time.Now()
+	app.Status = string(domain.PartnerAppStatusApproved)
+	app.ReviewedAt = &now
+	app.CommissionPercentage = &commissionPercentage
+	return s.createApprovedPartner(ctx, app, commissionPercentage)
+}
+
+func (s *PartnerApplicationService) createApprovedPartner(ctx context.Context, app *domain.PartnerApplication, commissionPercentage float64) *domain.AppError {
+	referralCode, err := generateUniqueReferralCode(ctx, s.partnerRepo)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+
+	if txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
+		if app.ID == uuid.Nil {
+			if err := tx.QueryRow(ctx, `
+				INSERT INTO partner_applications (
+					org_id, user_id, store_name, full_name, phone, city, business_location,
+					commercial_id, acquisition_source, status, reviewed_by, rejection_reason, reviewed_at
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, $12)
+				RETURNING id, status, created_at, reviewed_at
+			`, app.OrgID, app.UserID, app.StoreName, app.FullName, app.Phone, app.City, app.BusinessLocation,
+				app.CommercialID, app.AcquisitionSource, app.Status, app.ReviewedBy, app.ReviewedAt,
+			).Scan(&app.ID, &app.Status, &app.CreatedAt, &app.ReviewedAt); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				UPDATE partner_applications
+				SET status = $2, reviewed_by = $3, rejection_reason = $4, reviewed_at = $5
+				WHERE id = $1
+			`, app.ID, app.Status, app.ReviewedBy, app.RejectionReason, app.ReviewedAt); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO partners (
+				org_id, user_id, store_name, city, business_location, referral_code, commission_percentage,
+				commercial_id, acquisition_source, status
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+			ON CONFLICT (org_id, user_id) DO UPDATE
+			SET store_name = EXCLUDED.store_name,
+				city = EXCLUDED.city,
+				business_location = EXCLUDED.business_location,
+				commission_percentage = EXCLUDED.commission_percentage,
+				commercial_id = COALESCE(partners.commercial_id, EXCLUDED.commercial_id),
+				acquisition_source = CASE
+					WHEN partners.acquisition_source = 'direct' THEN EXCLUDED.acquisition_source
+					ELSE partners.acquisition_source
+				END,
+				status = 'active',
+				updated_at = now()
+		`, app.OrgID, app.UserID, app.StoreName, app.City, app.BusinessLocation, referralCode, commissionPercentage, app.CommercialID, app.AcquisitionSource); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE users
+			SET role = CASE
+					WHEN role IN ('member', 'viewer') THEN $2
+					ELSE role
+				END,
+				updated_at = now()
+			WHERE id = $1 AND deleted_at IS NULL
+		`, app.UserID, string(auth.RolePartner)); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE "user"
+			SET role = CASE
+					WHEN role IN ('member', 'viewer') THEN $2
+					ELSE role
+				END,
+				"updatedAt" = now()
+			WHERE id = (SELECT better_auth_id FROM users WHERE id = $1 AND deleted_at IS NULL)
+		`, app.UserID, string(auth.RolePartner)); err != nil {
+			return err
+		}
+
+		return nil
+	}); txErr != nil {
+		return domain.InternalError(txErr)
+	}
+
+	return nil
 }
 
 func isValidCommissionPercentage(percentage *float64) bool {
