@@ -1,8 +1,8 @@
 package handler
 
 import (
+	"io"
 	"net/http"
-	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -170,19 +170,17 @@ func (h *CommercialHandler) ActivityReportPhoto(w http.ResponseWriter, r *http.R
 		WriteError(w, r, appErr)
 		return
 	}
-	report, serviceErr := h.svc.GetActivityReportPhoto(r.Context(), ac, reportID)
+	report, file, serviceErr := h.svc.OpenActivityReportPhoto(r.Context(), ac, reportID)
 	if serviceErr != nil {
 		WriteError(w, r, serviceErr)
 		return
 	}
-	file, err := os.Open(report.PhotoStoragePath)
-	if err != nil {
-		WriteError(w, r, domain.NotFound("activity report photo"))
-		return
-	}
 	defer file.Close()
 	w.Header().Set("Content-Type", report.PhotoContentType)
-	http.ServeContent(w, r, report.ID.String(), report.CreatedAt, file)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	if _, err := io.Copy(w, file); err != nil {
+		return
+	}
 }
 
 func (h *CommercialHandler) AdminListCommercials(w http.ResponseWriter, r *http.Request) {

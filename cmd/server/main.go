@@ -25,6 +25,7 @@ import (
 	mw "github.com/cherif-safephone/safephone-backend/internal/middleware"
 	"github.com/cherif-safephone/safephone-backend/internal/repository"
 	"github.com/cherif-safephone/safephone-backend/internal/service"
+	"github.com/cherif-safephone/safephone-backend/internal/storage"
 )
 
 func main() {
@@ -89,6 +90,31 @@ func main() {
 	repairRepo := repository.NewRepairRepository(pool)
 	webhookEventRepo := repository.NewWebhookEventRepository(pool)
 
+	activityPhotoStore := storage.ActivityPhotoStore(storage.NewLocalActivityPhotoStore("uploads/commercial-activity"))
+	if cfg.S3PartiallyConfigured() {
+		slog.Error("S3 activity photo storage is partially configured; set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY")
+		os.Exit(1)
+	} else if cfg.S3Enabled() {
+		s3Store, err := storage.NewS3ActivityPhotoStore(ctx, storage.S3ActivityPhotoStoreConfig{
+			Endpoint:       cfg.S3Endpoint,
+			Region:         cfg.S3Region,
+			Bucket:         cfg.S3Bucket,
+			AccessKeyID:    cfg.S3AccessKeyID,
+			SecretKey:      cfg.S3SecretAccessKey,
+			Prefix:         cfg.S3ActivityPrefix,
+			ForcePathStyle: cfg.S3ForcePathStyle,
+			Fallback:       activityPhotoStore,
+		})
+		if err != nil {
+			slog.Error("failed to initialize S3 activity photo storage", "error", err)
+			os.Exit(1)
+		}
+		activityPhotoStore = s3Store
+		slog.Info("S3 activity photo storage enabled", "bucket", cfg.S3Bucket, "endpoint", cfg.S3Endpoint, "prefix", cfg.S3ActivityPrefix)
+	} else {
+		slog.Info("local activity photo storage enabled", "path", "uploads/commercial-activity")
+	}
+
 	if cfg.IsDevelopment() {
 		if err := planRepo.EnsureDevelopmentTestPlan(ctx); err != nil {
 			slog.Error("failed to ensure development test plan", "error", err)
@@ -130,7 +156,7 @@ func main() {
 	contactSvc := service.NewContactService(contactRepo)
 	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, commercialRepo, pool)
 	partnerSvc := service.NewPartnerService(partnerRepo, userRepo, paymentRepo, cfg.FrontendURL)
-	commercialSvc := service.NewCommercialService(commercialRepo, partnerRepo, cfg.FrontendURL)
+	commercialSvc := service.NewCommercialService(commercialRepo, partnerRepo, cfg.FrontendURL, activityPhotoStore)
 	repairSvc := service.NewRepairService(repairRepo)
 	employeeSvc := service.NewEmployeeService(employeeRepo, userRepo, subRepo, claimRepo, repairSvc)
 

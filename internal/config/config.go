@@ -44,6 +44,15 @@ type Config struct {
 	// Public callback URLs
 	FrontendURL      string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 	BackendPublicURL string `env:"BACKEND_PUBLIC_URL"`
+
+	// S3-compatible storage for commercial activity photos (Railway Buckets)
+	S3Endpoint        string `env:"S3_ENDPOINT"`
+	S3Region          string `env:"S3_REGION" envDefault:"auto"`
+	S3Bucket          string `env:"S3_BUCKET"`
+	S3AccessKeyID     string `env:"S3_ACCESS_KEY_ID"`
+	S3SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY"`
+	S3ActivityPrefix  string `env:"S3_ACTIVITY_PREFIX" envDefault:"commercial-activity"`
+	S3ForcePathStyle  bool   `env:"S3_FORCE_PATH_STYLE" envDefault:"false"`
 }
 
 // IsDevelopment returns true if the application is running in development mode.
@@ -54,6 +63,23 @@ func (c *Config) IsDevelopment() bool {
 // DexpayEnabled returns true when DEXPAY credentials are configured.
 func (c *Config) DexpayEnabled() bool {
 	return c.DexpayAPIKey != "" && c.DexpayAPISecret != ""
+}
+
+// S3Enabled returns true when S3-compatible object storage credentials are configured.
+func (c *Config) S3Enabled() bool {
+	return c.S3Endpoint != "" &&
+		c.S3Bucket != "" &&
+		c.S3AccessKeyID != "" &&
+		c.S3SecretAccessKey != ""
+}
+
+// S3PartiallyConfigured returns true when only some required S3 variables are present.
+func (c *Config) S3PartiallyConfigured() bool {
+	hasAny := c.S3Endpoint != "" ||
+		c.S3Bucket != "" ||
+		c.S3AccessKeyID != "" ||
+		c.S3SecretAccessKey != ""
+	return hasAny && !c.S3Enabled()
 }
 
 // Load reads configuration from environment variables and returns a Config.

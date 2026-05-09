@@ -8,7 +8,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -16,6 +15,7 @@ import (
 
 	"github.com/cherif-safephone/safephone-backend/internal/auth"
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
+	"github.com/cherif-safephone/safephone-backend/internal/storage"
 )
 
 const maxCommercialActivityPhotoBytes = 8 << 20
@@ -35,15 +35,19 @@ type CommercialService struct {
 	repo        domain.CommercialRepository
 	partnerRepo domain.PartnerRepository
 	frontendURL string
-	uploadRoot  string
+	photoStore  storage.ActivityPhotoStore
 }
 
-func NewCommercialService(repo domain.CommercialRepository, partnerRepo domain.PartnerRepository, frontendURL string) *CommercialService {
+func NewCommercialService(repo domain.CommercialRepository, partnerRepo domain.PartnerRepository, frontendURL string, photoStore ...storage.ActivityPhotoStore) *CommercialService {
+	store := storage.ActivityPhotoStore(storage.NewLocalActivityPhotoStore(filepath.Join("uploads", "commercial-activity")))
+	if len(photoStore) > 0 && photoStore[0] != nil {
+		store = photoStore[0]
+	}
 	return &CommercialService{
 		repo:        repo,
 		partnerRepo: partnerRepo,
 		frontendURL: strings.TrimRight(strings.TrimSpace(frontendURL), "/"),
-		uploadRoot:  filepath.Join("uploads", "commercial-activity"),
+		photoStore:  store,
 	}
 }
 
@@ -194,7 +198,7 @@ func (s *CommercialService) CreateActivityReport(ctx context.Context, ac *auth.A
 		}
 	}
 
-	storagePath, contentType, err := s.storeActivityPhoto(input.Photo)
+	storagePath, contentType, err := s.storeActivityPhoto(ctx, input.Photo)
 	if err != nil {
 		return nil, domain.BadRequest(err.Error())
 	}
@@ -219,6 +223,18 @@ func (s *CommercialService) CreateActivityReport(ctx context.Context, ac *auth.A
 	}
 	report.ID = reportID
 	return report, nil
+}
+
+func (s *CommercialService) OpenActivityReportPhoto(ctx context.Context, ac *auth.AuthContext, reportID uuid.UUID) (*domain.CommercialActivityReport, io.ReadCloser, *domain.AppError) {
+	report, appErr := s.GetActivityReportPhoto(ctx, ac, reportID)
+	if appErr != nil {
+		return nil, nil, appErr
+	}
+	file, err := s.photoStore.Open(ctx, report.PhotoStoragePath)
+	if err != nil {
+		return nil, nil, domain.NotFound("activity report photo")
+	}
+	return report, file, nil
 }
 
 func (s *CommercialService) GetActivityReportPhoto(ctx context.Context, ac *auth.AuthContext, reportID uuid.UUID) (*domain.CommercialActivityReport, *domain.AppError) {
@@ -311,7 +327,7 @@ func (s *CommercialService) requireCommercialProfile(ctx context.Context, ac *au
 	return profile, nil
 }
 
-func (s *CommercialService) storeActivityPhoto(photo ActivityPhotoInput) (string, string, error) {
+func (s *CommercialService) storeActivityPhoto(ctx context.Context, photo ActivityPhotoInput) (string, string, error) {
 	if photo.Reader == nil {
 		return "", "", fmt.Errorf("photo is required")
 	}
@@ -328,7 +344,7 @@ func (s *CommercialService) storeActivityPhoto(photo ActivityPhotoInput) (string
 		return "", "", fmt.Errorf("photo must be 8MB or smaller")
 	}
 
-	contentType := strings.TrimSpace(photo.ContentType)
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(photo.ContentType, ";")[0]))
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
@@ -344,15 +360,11 @@ func (s *CommercialService) storeActivityPhoto(photo ActivityPhotoInput) (string
 		return "", "", fmt.Errorf("photo must be JPEG, PNG, or WebP")
 	}
 
-	if err := os.MkdirAll(s.uploadRoot, 0o750); err != nil {
-		return "", "", fmt.Errorf("failed to prepare upload storage")
-	}
-	name := strings.ReplaceAll(uuid.NewString(), "-", "") + ext
-	path := filepath.Join(s.uploadRoot, name)
-	if err := os.WriteFile(path, data, 0o640); err != nil {
+	storagePath, err := s.photoStore.Store(ctx, data, contentType, ext)
+	if err != nil {
 		return "", "", fmt.Errorf("failed to store photo")
 	}
-	return path, contentType, nil
+	return storagePath, contentType, nil
 }
 
 func trimOptional(value *string) *string {
