@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"path/filepath"
@@ -362,6 +363,7 @@ func (s *CommercialService) storeActivityPhoto(ctx context.Context, photo Activi
 
 	storagePath, err := s.photoStore.Store(ctx, data, contentType, ext)
 	if err != nil {
+		slog.Error("failed to store commercial activity photo", "error", err)
 		return "", "", fmt.Errorf("failed to store photo")
 	}
 	return storagePath, contentType, nil

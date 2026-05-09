@@ -90,6 +90,7 @@ func NewS3ActivityPhotoStore(ctx context.Context, cfg S3ActivityPhotoStoreConfig
 			options.BaseEndpoint = aws.String(endpoint)
 		}
 		options.UsePathStyle = cfg.ForcePathStyle
+		options.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 
 	return &S3ActivityPhotoStore{
