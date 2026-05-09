@@ -14,7 +14,7 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 )
 
-const defaultCommercialPartnerCommissionPercentage = 20.0
+const defaultCommercialPartnerCommissionPercentage = 10.0
 
 // PartnerApplicationService handles partner application submissions and review.
 type PartnerApplicationService struct {
