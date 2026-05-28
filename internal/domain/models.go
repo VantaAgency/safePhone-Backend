@@ -110,6 +110,7 @@ const (
 	SubscriptionStatusActive    SubscriptionStatus = "active"
 	SubscriptionStatusCancelled SubscriptionStatus = "cancelled"
 	SubscriptionStatusExpired   SubscriptionStatus = "expired"
+	SubscriptionStatusPastDue   SubscriptionStatus = "past_due"
 )
 
 // Subscription links a device to a plan with billing information.

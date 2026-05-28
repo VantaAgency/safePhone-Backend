@@ -73,8 +73,11 @@ func (s *DeviceService) Get(ctx context.Context, ac *auth.AuthContext, id uuid.U
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if device == nil || device.OrgID != ac.OrgID {
+	if device == nil {
 		return nil, domain.NotFound("device")
+	}
+	if appErr := ac.EnsureOwnership(device.OrgID, device.UserID, "device"); appErr != nil {
+		return nil, appErr
 	}
 	return device, nil
 }
@@ -85,8 +88,11 @@ func (s *DeviceService) Update(ctx context.Context, ac *auth.AuthContext, id uui
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if device == nil || device.OrgID != ac.OrgID {
+	if device == nil {
 		return nil, domain.NotFound("device")
+	}
+	if appErr := ac.EnsureOwnership(device.OrgID, device.UserID, "device"); appErr != nil {
+		return nil, appErr
 	}
 
 	if deviceType != "" {
@@ -133,8 +139,11 @@ func (s *DeviceService) Delete(ctx context.Context, ac *auth.AuthContext, id uui
 	if err != nil {
 		return domain.InternalError(err)
 	}
-	if device == nil || device.OrgID != ac.OrgID {
+	if device == nil {
 		return domain.NotFound("device")
+	}
+	if appErr := ac.EnsureOwnership(device.OrgID, device.UserID, "device"); appErr != nil {
+		return appErr
 	}
 
 	if err := s.repo.SoftDelete(ctx, id); err != nil {

@@ -41,6 +41,61 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	return &u, err
 }
 
+// GetStripeCustomerID returns the user's Stripe customer ID, or empty
+// string when not set.
+func (r *UserRepository) GetStripeCustomerID(ctx context.Context, userID uuid.UUID) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var customerID *string
+	err := r.pool.QueryRow(ctx, `
+		SELECT stripe_customer_id FROM users WHERE id = $1 AND deleted_at IS NULL
+	`, userID).Scan(&customerID)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if customerID == nil {
+		return "", nil
+	}
+	return *customerID, nil
+}
+
+// SetStripeCustomerID persists the Stripe customer ID on a user.
+func (r *UserRepository) SetStripeCustomerID(ctx context.Context, userID uuid.UUID, customerID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users SET stripe_customer_id = $2, updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, userID, customerID)
+	return err
+}
+
+// GetByStripeCustomerID returns the user owning the given Stripe customer
+// ID, or nil when no match.
+func (r *UserRepository) GetByStripeCustomerID(ctx context.Context, customerID string) (*domain.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var u domain.User
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, email, full_name, phone, role, better_auth_id,
+		       created_at, updated_at, deleted_at
+		FROM users
+		WHERE stripe_customer_id = $1 AND deleted_at IS NULL
+		LIMIT 1
+	`, customerID).Scan(&u.ID, &u.OrgID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.BetterAuthID,
+		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
 // Update persists changes to a user record.
 func (r *UserRepository) Update(ctx context.Context, u *domain.User) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

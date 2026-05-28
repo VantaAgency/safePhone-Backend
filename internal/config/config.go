@@ -41,6 +41,17 @@ type Config struct {
 	DexpayAPISecret string `env:"DEXPAY_API_SECRET"`
 	DexpayBaseURL   string `env:"DEXPAY_BASE_URL"`
 
+	// Stripe payment gateway (US market)
+	StripeSecretKey         string `env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret     string `env:"STRIPE_WEBHOOK_SECRET"`
+	StripePriceEssentiel    string `env:"STRIPE_PRICE_ESSENTIEL"`
+	StripePriceEcranPlus    string `env:"STRIPE_PRICE_ECRAN_PLUS"`
+	StripePricePlus         string `env:"STRIPE_PRICE_PLUS"`
+	StripePricePremium      string `env:"STRIPE_PRICE_PREMIUM"`
+	StripePriceTotal        string `env:"STRIPE_PRICE_TOTAL"`
+	StripeSuccessPath       string `env:"STRIPE_SUCCESS_PATH" envDefault:"/us/checkout/success?session_id={CHECKOUT_SESSION_ID}"`
+	StripeCancelPath        string `env:"STRIPE_CANCEL_PATH" envDefault:"/us/checkout/cancel"`
+
 	// Public callback URLs
 	FrontendURL      string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 	BackendPublicURL string `env:"BACKEND_PUBLIC_URL"`
@@ -63,6 +74,30 @@ func (c *Config) IsDevelopment() bool {
 // DexpayEnabled returns true when DEXPAY credentials are configured.
 func (c *Config) DexpayEnabled() bool {
 	return c.DexpayAPIKey != "" && c.DexpayAPISecret != ""
+}
+
+// StripeEnabled returns true when Stripe credentials are configured.
+func (c *Config) StripeEnabled() bool {
+	return c.StripeSecretKey != "" && c.StripeWebhookSecret != ""
+}
+
+// StripePriceIDForPlan returns the configured Stripe price ID for the
+// given US plan slug. Empty string means the plan isn't wired for Stripe.
+func (c *Config) StripePriceIDForPlan(planSlug string) string {
+	switch planSlug {
+	case "us_essentiel":
+		return c.StripePriceEssentiel
+	case "us_ecran_plus":
+		return c.StripePriceEcranPlus
+	case "us_plus":
+		return c.StripePricePlus
+	case "us_premium":
+		return c.StripePricePremium
+	case "us_total":
+		return c.StripePriceTotal
+	default:
+		return ""
+	}
 }
 
 // S3Enabled returns true when S3-compatible object storage credentials are configured.
@@ -92,8 +127,14 @@ func Load() (*Config, error) {
 	if err := cfg.normalizeAndValidateAuth(); err != nil {
 		return nil, fmt.Errorf("validating auth config: %w", err)
 	}
+	if err := cfg.normalizeAndValidateCORS(); err != nil {
+		return nil, fmt.Errorf("validating CORS config: %w", err)
+	}
 	if err := cfg.normalizeAndValidateDexpay(); err != nil {
 		return nil, fmt.Errorf("validating DEXPAY config: %w", err)
+	}
+	if err := cfg.normalizeAndValidateStripe(); err != nil {
+		return nil, fmt.Errorf("validating Stripe config: %w", err)
 	}
 	return cfg, nil
 }

@@ -74,8 +74,11 @@ func (s *SubscriptionService) Get(ctx context.Context, ac *auth.AuthContext, id 
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if sub == nil || sub.OrgID != ac.OrgID {
+	if sub == nil {
 		return nil, domain.NotFound("subscription")
+	}
+	if appErr := ac.EnsureOwnership(sub.OrgID, sub.UserID, "subscription"); appErr != nil {
+		return nil, appErr
 	}
 	return sub, nil
 }
@@ -86,8 +89,11 @@ func (s *SubscriptionService) Cancel(ctx context.Context, ac *auth.AuthContext, 
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if sub == nil || sub.OrgID != ac.OrgID {
+	if sub == nil {
 		return nil, domain.NotFound("subscription")
+	}
+	if appErr := ac.EnsureOwnership(sub.OrgID, sub.UserID, "subscription"); appErr != nil {
+		return nil, appErr
 	}
 
 	if sub.Status == domain.SubscriptionStatusCancelled {

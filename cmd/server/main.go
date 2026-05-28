@@ -20,6 +20,7 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/config"
 	"github.com/cherif-safephone/safephone-backend/internal/database"
 	"github.com/cherif-safephone/safephone-backend/internal/dexpay"
+	stripepkg "github.com/cherif-safephone/safephone-backend/internal/stripe"
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 	"github.com/cherif-safephone/safephone-backend/internal/handler"
 	mw "github.com/cherif-safephone/safephone-backend/internal/middleware"
@@ -144,6 +145,29 @@ func main() {
 		}
 	}
 
+	// Initialize Stripe client (nil when not configured)
+	var stripeClient *stripepkg.Client
+	if cfg.StripeEnabled() {
+		var err error
+		stripeClient, err = stripepkg.NewClient(stripepkg.Config{
+			SecretKey:     cfg.StripeSecretKey,
+			WebhookSecret: cfg.StripeWebhookSecret,
+			SuccessURL:    cfg.FrontendURL + cfg.StripeSuccessPath,
+			CancelURL:     cfg.FrontendURL + cfg.StripeCancelPath,
+		})
+		if err != nil {
+			slog.Error("failed to initialize Stripe client", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Stripe payment gateway enabled",
+			"test_mode", stripeClient.IsTestMode(),
+			"success_path", cfg.StripeSuccessPath,
+			"cancel_path", cfg.StripeCancelPath,
+		)
+	} else {
+		slog.Warn("Stripe not configured; US checkout requests will return 503 until credentials are set")
+	}
+
 	// Initialize services
 	userSvc := service.NewUserService(userRepo)
 	adminSvc := service.NewAdminService(adminRepo)
@@ -177,6 +201,8 @@ func main() {
 	commercialH := handler.NewCommercialHandler(commercialSvc)
 	repairH := handler.NewRepairHandler(repairSvc)
 	webhookH := handler.NewWebhookHandler(paymentSvc, cfg.DexpayAPISecret, cfg.IsDevelopment())
+	stripeSvc := service.NewStripeService(stripeClient, cfg, userRepo, subRepo, planRepo, deviceRepo, webhookEventRepo)
+	stripeH := handler.NewStripeHandler(stripeSvc, stripeClient)
 
 	// Initialize auth
 	jwtVerifier := auth.NewJWTVerifier(cfg.JWKSURL, cfg.JWTIssuer, redisClient)
@@ -211,8 +237,9 @@ func main() {
 		r.With(jwtVerifier.AuthenticateOptional).Post("/repairs", repairH.CreateBooking)
 		r.Post("/repairs/lookup", repairH.LookupBooking)
 
-		// Webhook endpoint (public, signature-verified internally)
+		// Webhook endpoints (public, signature-verified internally; raw bodies)
 		r.Post("/webhooks/dexpay", webhookH.HandleDexpay)
+		r.Post("/webhooks/stripe", stripeH.HandleWebhook)
 
 		// Authenticated routes
 		r.Group(func(r chi.Router) {
@@ -254,6 +281,10 @@ func main() {
 			r.Get("/payments/{id}", paymentH.Get)
 			r.Get("/payments/{id}/checkout", paymentH.GetCheckout)
 			r.Post("/payments/{id}/resume", paymentH.Resume)
+
+			// Stripe checkout (US market)
+			r.Post("/payments/stripe/checkout", stripeH.CreateCheckout)
+			r.Post("/us/devices", stripeH.RegisterDevice)
 
 			// Partner routes
 			r.Route("/partner", func(r chi.Router) {

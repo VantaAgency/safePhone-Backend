@@ -7,15 +7,16 @@ import (
 
 // Error code constants used across the application.
 const (
-	CodeNotFound         = "NOT_FOUND"
-	CodeValidationFailed = "VALIDATION_FAILED"
-	CodeUnauthorized     = "UNAUTHORIZED"
-	CodeForbidden        = "FORBIDDEN"
-	CodeConflict         = "CONFLICT"
-	CodeInternalError    = "INTERNAL_ERROR"
-	CodeRateLimited      = "RATE_LIMITED"
-	CodeBadRequest       = "BAD_REQUEST"
-	CodePaymentGateway   = "PAYMENT_GATEWAY_ERROR"
+	CodeNotFound           = "NOT_FOUND"
+	CodeValidationFailed   = "VALIDATION_FAILED"
+	CodeUnauthorized       = "UNAUTHORIZED"
+	CodeForbidden          = "FORBIDDEN"
+	CodeConflict           = "CONFLICT"
+	CodeInternalError      = "INTERNAL_ERROR"
+	CodeRateLimited        = "RATE_LIMITED"
+	CodeBadRequest         = "BAD_REQUEST"
+	CodePaymentGateway     = "PAYMENT_GATEWAY_ERROR"
+	CodeServiceUnavailable = "SERVICE_UNAVAILABLE"
 )
 
 // AppError is the standard error type returned by services.
@@ -113,6 +114,26 @@ func PaymentGatewayError(internal error) *AppError {
 		Message:    "payment gateway error",
 		HTTPStatus: http.StatusBadGateway,
 		Internal:   internal,
+	}
+}
+
+// Internal creates an internal error with a plain message. Prefer
+// InternalError when you have a wrapped error to attach.
+func Internal(message string) *AppError {
+	return &AppError{
+		Code:       CodeInternalError,
+		Message:    message,
+		HTTPStatus: http.StatusInternalServerError,
+	}
+}
+
+// ServiceUnavailable indicates an integration is disabled or offline
+// (e.g. Stripe not configured).
+func ServiceUnavailable(message string) *AppError {
+	return &AppError{
+		Code:       CodeServiceUnavailable,
+		Message:    message,
+		HTTPStatus: http.StatusServiceUnavailable,
 	}
 }
 

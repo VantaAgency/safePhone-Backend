@@ -2,6 +2,36 @@ package domain
 
 import "strings"
 
+// IsValidIMEI checks that the IMEI is exactly 15 digits AND passes the Luhn
+// checksum. The handler-level `len=15,numeric` tag catches obvious junk but
+// accepts e.g. "111111111111111", which isn't a real IMEI. Real device IMEIs
+// always satisfy Luhn — this catches typos and casual spoofing without any
+// network call.
+func IsValidIMEI(imei string) bool {
+	imei = strings.TrimSpace(imei)
+	if len(imei) != 15 {
+		return false
+	}
+	var sum int
+	for i := 0; i < 15; i++ {
+		c := imei[14-i]
+		if c < '0' || c > '9' {
+			return false
+		}
+		digit := int(c - '0')
+		// Luhn: double every second digit from the right (i.e. odd indexes
+		// here since we're iterating right-to-left starting at i=0).
+		if i%2 == 1 {
+			digit *= 2
+			if digit > 9 {
+				digit -= 9
+			}
+		}
+		sum += digit
+	}
+	return sum%10 == 0
+}
+
 // NormalizeDeviceType ensures empty values fall back to smartphone.
 func NormalizeDeviceType(raw string) DeviceType {
 	switch DeviceType(strings.TrimSpace(raw)) {
@@ -69,6 +99,9 @@ func ValidateDeviceInput(plan *Plan, deviceType DeviceType, brand, model, imei s
 
 	if normalizedType != DeviceTypeSmartphone && normalizedIMEI != "" {
 		fields["imei"] = "IMEI is only supported for smartphones"
+	}
+	if normalizedIMEI != "" && !IsValidIMEI(normalizedIMEI) {
+		fields["imei"] = "IMEI is not valid (must be 15 digits with a valid checksum)"
 	}
 	if normalizedType == DeviceTypeComputer && normalizedMetadata.ComputerCategory == "" {
 		fields["metadata.computer_category"] = "computer category is required for computers"
