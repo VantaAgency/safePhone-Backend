@@ -844,8 +844,8 @@ func (r *EmployeeRepository) listClientDeviceCoverage(ctx context.Context, orgID
 	rows, err := r.pool.Query(ctx, `
 		SELECT
 			d.id, d.org_id, d.user_id, d.device_type, d.brand, d.model, d.metadata, d.imei, d.status, d.created_at, d.updated_at, d.deleted_at,
-			s.id, s.org_id, s.user_id, s.device_id, s.plan_id, s.status, s.billing_cycle, s.current_period_start, s.current_period_end, s.cancelled_at, s.created_at, s.updated_at,
-			p.id, p.org_id, p.user_id, p.plan_id, p.subscription_id, p.amount_xof, p.currency, p.provider, p.payment_method, p.status, p.provider_ref, p.payment_url, p.idempotency_key, p.provider_payload, p.paid_at, p.failed_at, p.expires_at, p.created_at, p.updated_at,
+			s.id, s.org_id, s.user_id, s.device_id, s.plan_id, s.status, s.billing_cycle, s.market, s.current_period_start, s.current_period_end, s.cancelled_at, s.created_at, s.updated_at,
+			p.id, p.org_id, p.user_id, p.plan_id, p.subscription_id, p.amount_minor, p.market, p.currency, p.provider, p.payment_method, p.status, p.provider_ref, p.payment_url, p.idempotency_key, p.provider_payload, p.paid_at, p.failed_at, p.expires_at, p.created_at, p.updated_at,
 			pl.name_fr,
 			pl.name_en,
 			partner.store_name
@@ -942,7 +942,7 @@ func (r *EmployeeRepository) listPaymentFollowUpsBase(ctx context.Context, orgID
 			u.phone,
 			d.id, d.org_id, d.user_id, d.device_type, d.brand, d.model, d.metadata, d.imei, d.status, d.created_at, d.updated_at, d.deleted_at,
 			ls.id, ls.org_id, ls.user_id, ls.device_id, ls.plan_id, ls.status, ls.billing_cycle, ls.current_period_start, ls.current_period_end, ls.cancelled_at, ls.created_at, ls.updated_at,
-			p.id, p.org_id, p.user_id, p.plan_id, p.subscription_id, p.amount_xof, p.currency, p.provider, p.payment_method, p.status, p.provider_ref, p.payment_url, p.idempotency_key, p.provider_payload, p.paid_at, p.failed_at, p.expires_at, p.created_at, p.updated_at,
+			p.id, p.org_id, p.user_id, p.plan_id, p.subscription_id, p.amount_minor, p.market, p.currency, p.provider, p.payment_method, p.status, p.provider_ref, p.payment_url, p.idempotency_key, p.provider_payload, p.paid_at, p.failed_at, p.expires_at, p.created_at, p.updated_at,
 			pl.name_fr,
 			pl.name_en,
 			CASE
@@ -1059,7 +1059,7 @@ func (r *EmployeeRepository) listClaimDetailsBase(ctx context.Context, orgID uui
 	var query strings.Builder
 	query.WriteString(`
 		SELECT
-			c.id, c.org_id, c.user_id, c.device_id, c.subscription_id, c.claim_type, c.description, c.status, c.amount_xof, c.filed_at, c.reviewed_at, c.settled_at, c.created_at, c.updated_at,
+			c.id, c.org_id, c.user_id, c.device_id, c.subscription_id, c.claim_type, c.description, c.status, c.amount_minor, c.filed_at, c.reviewed_at, c.settled_at, c.created_at, c.updated_at,
 			u.full_name,
 			u.email,
 			u.phone,
@@ -1182,7 +1182,7 @@ func (r *EmployeeRepository) listRepairDetailsBase(ctx context.Context, orgID uu
 		SELECT
 			rb.id, rb.org_id, rb.user_id, rb.reference, rb.device_brand, rb.device_model, rb.repair_type, rb.service_mode, rb.center_id,
 			rb.preferred_date, rb.preferred_time, rb.scheduled_date, rb.scheduled_time, rb.customer_name, rb.customer_phone, rb.customer_phone_normalized,
-			rb.status, rb.repair_amount_xof, rb.request_source, rb.created_at, rb.updated_at,
+			rb.status, rb.repair_amount_minor, rb.request_source, rb.created_at, rb.updated_at,
 			u.id,
 			u.email,
 			partner.store_name
@@ -1338,6 +1338,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		subPlanID        *uuid.UUID
 		subStatus        *domain.SubscriptionStatus
 		subBillingCycle  *string
+		subMarket        *string
 		subCreatedAt     *time.Time
 		subUpdatedAt     *time.Time
 		payment          domain.Payment
@@ -1347,6 +1348,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		paymentPlanID    *uuid.UUID
 		paymentSubID     *uuid.UUID
 		paymentAmount    *int
+		paymentMarket    *string
 		paymentCurrency  *string
 		paymentProvider  *string
 		paymentMethod    *string
@@ -1382,6 +1384,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		&subPlanID,
 		&subStatus,
 		&subBillingCycle,
+		&subMarket,
 		&sub.CurrentPeriodStart,
 		&sub.CurrentPeriodEnd,
 		&sub.CancelledAt,
@@ -1393,6 +1396,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		&paymentPlanID,
 		&paymentSubID,
 		&paymentAmount,
+		&paymentMarket,
 		&paymentCurrency,
 		&paymentProvider,
 		&paymentMethod,
@@ -1426,6 +1430,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		sub.PlanID = *subPlanID
 		sub.Status = *subStatus
 		sub.BillingCycle = *subBillingCycle
+		sub.Market = domain.MarketCode(*subMarket)
 		sub.CreatedAt = *subCreatedAt
 		sub.UpdatedAt = *subUpdatedAt
 		subPtr = &sub
@@ -1438,7 +1443,8 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		payment.UserID = *paymentUserID
 		payment.PlanID = *paymentPlanID
 		payment.SubscriptionID = *paymentSubID
-		payment.AmountXOF = *paymentAmount
+		payment.AmountMinor = *paymentAmount
+		payment.Market = domain.MarketCode(*paymentMarket)
 		payment.Currency = *paymentCurrency
 		payment.Provider = *paymentProvider
 		payment.PaymentMethod = paymentMethod
@@ -1468,6 +1474,7 @@ func scanEmployeePaymentFollowUpRow(rows pgx.Rows) (*domain.EmployeePaymentFollo
 		paymentPlanID    *uuid.UUID
 		paymentSubID     *uuid.UUID
 		paymentAmount    *int
+		paymentMarket    *string
 		paymentCurrency  *string
 		paymentProvider  *string
 		paymentMethod    *string
@@ -1520,6 +1527,7 @@ func scanEmployeePaymentFollowUpRow(rows pgx.Rows) (*domain.EmployeePaymentFollo
 		&paymentPlanID,
 		&paymentSubID,
 		&paymentAmount,
+		&paymentMarket,
 		&paymentCurrency,
 		&paymentProvider,
 		&paymentMethod,
@@ -1555,7 +1563,8 @@ func scanEmployeePaymentFollowUpRow(rows pgx.Rows) (*domain.EmployeePaymentFollo
 		payment.UserID = *paymentUserID
 		payment.PlanID = *paymentPlanID
 		payment.SubscriptionID = *paymentSubID
-		payment.AmountXOF = *paymentAmount
+		payment.AmountMinor = *paymentAmount
+		payment.Market = domain.MarketCode(*paymentMarket)
 		payment.Currency = *paymentCurrency
 		payment.Provider = *paymentProvider
 		payment.PaymentMethod = paymentMethod
@@ -1590,7 +1599,7 @@ func scanEmployeeClaimDetailRow(rows pgx.Rows) (*domain.EmployeeClaimDetail, err
 		&item.Claim.ClaimType,
 		&item.Claim.Description,
 		&item.Claim.Status,
-		&item.Claim.AmountXOF,
+		&item.Claim.AmountMinor,
 		&item.Claim.FiledAt,
 		&item.Claim.ReviewedAt,
 		&item.Claim.SettledAt,
@@ -1642,7 +1651,7 @@ func scanEmployeeRepairDetailRow(rows pgx.Rows) (*domain.EmployeeRepairDetail, e
 		&item.Repair.CustomerPhone,
 		&item.Repair.CustomerPhoneNormalized,
 		&item.Repair.Status,
-		&item.Repair.RepairAmountXOF,
+		&item.Repair.RepairAmountMinor,
 		&item.Repair.RequestSource,
 		&item.Repair.CreatedAt,
 		&item.Repair.UpdatedAt,

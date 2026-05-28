@@ -22,7 +22,7 @@ func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 	return &PaymentRepository{pool: pool, timeout: 5 * time.Second}
 }
 
-const paymentColumns = `id, org_id, user_id, plan_id, subscription_id, amount_xof,
+const paymentColumns = `id, org_id, user_id, plan_id, subscription_id, amount_minor, market,
        currency, provider, payment_method, status, provider_ref, payment_url,
        idempotency_key, provider_payload, paid_at, failed_at, expires_at, created_at, updated_at`
 
@@ -31,15 +31,19 @@ func (r *PaymentRepository) Create(ctx context.Context, p *domain.Payment) error
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	market := p.Market
+	if market == "" {
+		market = domain.MarketSN
+	}
 	return r.pool.QueryRow(ctx, `
 		INSERT INTO payments (
-			id, org_id, user_id, plan_id, subscription_id, amount_xof, currency,
+			id, org_id, user_id, plan_id, subscription_id, amount_minor, market, currency,
 			provider, payment_method, status, provider_ref, payment_url,
 			idempotency_key, provider_payload, paid_at, failed_at, expires_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING created_at, updated_at
-	`, p.ID, p.OrgID, p.UserID, p.PlanID, p.SubscriptionID, p.AmountXOF, p.Currency,
+	`, p.ID, p.OrgID, p.UserID, p.PlanID, p.SubscriptionID, p.AmountMinor, market, p.Currency,
 		p.Provider, p.PaymentMethod, p.Status, p.ProviderRef, p.PaymentURL,
 		p.IdempotencyKey, p.ProviderPayload, p.PaidAt, p.FailedAt, p.ExpiresAt,
 	).Scan(&p.CreatedAt, &p.UpdatedAt)
@@ -188,7 +192,8 @@ func scanPaymentRow(row pgx.Row) (*domain.Payment, error) {
 		&payment.UserID,
 		&payment.PlanID,
 		&payment.SubscriptionID,
-		&payment.AmountXOF,
+		&payment.AmountMinor,
+		&payment.Market,
 		&payment.Currency,
 		&payment.Provider,
 		&payment.PaymentMethod,
@@ -224,7 +229,8 @@ func scanPaymentRows(rows pgx.Rows) (*domain.Payment, error) {
 		&payment.UserID,
 		&payment.PlanID,
 		&payment.SubscriptionID,
-		&payment.AmountXOF,
+		&payment.AmountMinor,
+		&payment.Market,
 		&payment.Currency,
 		&payment.Provider,
 		&payment.PaymentMethod,

@@ -127,7 +127,7 @@ func (s *ClaimService) UpdateStatus(ctx context.Context, ac *auth.AuthContext, i
 
 	now := time.Now()
 	claim.Status = status
-	claim.AmountXOF = amountXOF
+	claim.AmountMinor = amountXOF
 
 	switch status {
 	case domain.ClaimStatusReview, domain.ClaimStatusApproved, domain.ClaimStatusRejected:

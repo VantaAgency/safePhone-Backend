@@ -22,7 +22,7 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
 	return &SubscriptionRepository{pool: pool, timeout: 5 * time.Second}
 }
 
-const subColumns = `id, org_id, user_id, device_id, plan_id, status, billing_cycle,
+const subColumns = `id, org_id, user_id, device_id, plan_id, status, billing_cycle, market,
        current_period_start, current_period_end, cancelled_at,
        created_at, updated_at`
 
@@ -31,12 +31,16 @@ func (r *SubscriptionRepository) Create(ctx context.Context, s *domain.Subscript
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	market := s.Market
+	if market == "" {
+		market = domain.MarketSN
+	}
 	return r.pool.QueryRow(ctx, `
-		INSERT INTO subscriptions (org_id, user_id, device_id, plan_id, status, billing_cycle,
+		INSERT INTO subscriptions (org_id, user_id, device_id, plan_id, status, billing_cycle, market,
 		       current_period_start, current_period_end)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
-	`, s.OrgID, s.UserID, s.DeviceID, s.PlanID, s.Status, s.BillingCycle,
+	`, s.OrgID, s.UserID, s.DeviceID, s.PlanID, s.Status, s.BillingCycle, market,
 		s.CurrentPeriodStart, s.CurrentPeriodEnd).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt)
 }
 
@@ -51,7 +55,7 @@ func (r *SubscriptionRepository) GetByID(ctx context.Context, id uuid.UUID) (*do
 
 	var s domain.Subscription
 	err := r.pool.QueryRow(ctx, `SELECT `+subColumns+` FROM subscriptions WHERE id = $1`, id).Scan(
-		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle,
+		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
 		&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 		&s.CreatedAt, &s.UpdatedAt)
 
@@ -78,7 +82,7 @@ func (r *SubscriptionRepository) GetByDeviceID(ctx context.Context, deviceID uui
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, deviceID).Scan(
-		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle,
+		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
 		&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -118,7 +122,7 @@ func (r *SubscriptionRepository) ListByDeviceID(ctx context.Context, deviceID uu
 	for rows.Next() {
 		var s domain.Subscription
 		if err := rows.Scan(
-			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle,
+			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
 			&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 			&s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
@@ -157,7 +161,7 @@ func (r *SubscriptionRepository) ListByOrgAndUser(ctx context.Context, orgID, us
 	for rows.Next() {
 		var s domain.Subscription
 		if err := rows.Scan(
-			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle,
+			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
 			&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 			&s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err

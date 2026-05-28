@@ -24,7 +24,7 @@ type CreateClaimRequest struct {
 // UpdateClaimStatusRequest is the request body for admin claim status updates.
 type UpdateClaimStatusRequest struct {
 	Status    string `json:"status" validate:"required,oneof=review approved rejected settled"`
-	AmountXOF *int   `json:"amount_xof" validate:"omitempty,min=0"`
+	AmountMinor *int `json:"amount_minor" validate:"omitempty,min=0"`
 }
 
 // ClaimHandler handles claim-related HTTP requests.
@@ -170,7 +170,7 @@ func (h *ClaimHandler) AdminUpdateStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	claim, appErr := h.svc.UpdateStatus(r.Context(), ac, id, domain.ClaimStatus(req.Status), req.AmountXOF)
+	claim, appErr := h.svc.UpdateStatus(r.Context(), ac, id, domain.ClaimStatus(req.Status), req.AmountMinor)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

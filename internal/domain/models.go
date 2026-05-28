@@ -26,6 +26,7 @@ type User struct {
 	FullName     string     `json:"full_name"`
 	Phone        *string    `json:"phone,omitempty"`
 	Role         string     `json:"role"`
+	Market       MarketCode `json:"market"`
 	BetterAuthID *string    `json:"better_auth_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
@@ -97,6 +98,7 @@ type Device struct {
 	Metadata   DeviceMetadata `json:"metadata"`
 	IMEI       string         `json:"imei"`
 	Status     DeviceStatus   `json:"status"`
+	Market     MarketCode     `json:"market"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  *time.Time     `json:"deleted_at,omitempty"`
@@ -122,6 +124,7 @@ type Subscription struct {
 	PlanID             uuid.UUID          `json:"plan_id"`
 	Status             SubscriptionStatus `json:"status"`
 	BillingCycle       string             `json:"billing_cycle"`
+	Market             MarketCode         `json:"market"`
 	CurrentPeriodStart *time.Time         `json:"current_period_start,omitempty"`
 	CurrentPeriodEnd   *time.Time         `json:"current_period_end,omitempty"`
 	CancelledAt        *time.Time         `json:"cancelled_at,omitempty"`
@@ -160,7 +163,8 @@ type Claim struct {
 	ClaimType      ClaimType   `json:"claim_type"`
 	Description    *string     `json:"description,omitempty"`
 	Status         ClaimStatus `json:"status"`
-	AmountXOF      *int        `json:"amount_xof,omitempty"`
+	AmountMinor    *int        `json:"amount_minor,omitempty"`
+	Market         MarketCode  `json:"market"`
 	FiledAt        time.Time   `json:"filed_at"`
 	ReviewedAt     *time.Time  `json:"reviewed_at,omitempty"`
 	SettledAt      *time.Time  `json:"settled_at,omitempty"`
@@ -571,7 +575,8 @@ type AdminPayment struct {
 	CustomerName  string     `json:"customer_name"`
 	PlanNameFR    *string    `json:"plan_name_fr,omitempty"`
 	PlanNameEN    *string    `json:"plan_name_en,omitempty"`
-	AmountXOF     int        `json:"amount_xof"`
+	AmountMinor   int        `json:"amount_minor"`
+	Market        MarketCode `json:"market"`
 	Provider      string     `json:"provider"`
 	PaymentMethod *string    `json:"payment_method,omitempty"`
 	Status        string     `json:"status"`
@@ -614,7 +619,8 @@ type RepairBooking struct {
 	CustomerPhone           string     `json:"customer_phone"`
 	CustomerPhoneNormalized string     `json:"-"`
 	Status                  string     `json:"status"`
-	RepairAmountXOF         *int       `json:"repair_amount_xof,omitempty"`
+	RepairAmountMinor       *int       `json:"repair_amount_minor,omitempty"`
+	Market                  MarketCode `json:"market"`
 	RequestSource           string     `json:"request_source"`
 	CreatedAt               time.Time  `json:"created_at"`
 	UpdatedAt               time.Time  `json:"updated_at"`
@@ -649,7 +655,8 @@ type Payment struct {
 	UserID          uuid.UUID       `json:"user_id"`
 	PlanID          uuid.UUID       `json:"plan_id"`
 	SubscriptionID  uuid.UUID       `json:"subscription_id"`
-	AmountXOF       int             `json:"amount_xof"`
+	AmountMinor     int             `json:"amount_minor"`
+	Market          MarketCode      `json:"market"`
 	Currency        string          `json:"currency"`
 	Provider        string          `json:"provider"`
 	PaymentMethod   *string         `json:"payment_method,omitempty"`

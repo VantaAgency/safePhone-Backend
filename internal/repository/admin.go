@@ -42,11 +42,11 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 	if err := r.pool.QueryRow(ctx, `
 		WITH revenue_by_provider AS (
 			SELECT COALESCE(
-				jsonb_object_agg(provider, amount_xof),
+				jsonb_object_agg(provider, amount_minor),
 				'{}'::jsonb
 			) AS payload
 			FROM (
-				SELECT provider, SUM(amount_xof)::int AS amount_xof
+				SELECT provider, SUM(amount_minor)::int AS amount_minor
 				FROM payments
 				WHERE org_id = $1
 				  AND status = 'completed'
@@ -56,7 +56,7 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 		SELECT
 			(SELECT COUNT(*)::int FROM subscriptions WHERE org_id = $1 AND status = 'active'),
 			(
-				SELECT COALESCE(SUM(amount_xof), 0)::int
+				SELECT COALESCE(SUM(amount_minor), 0)::int
 				FROM payments
 				WHERE org_id = $1
 				  AND status = 'completed'
@@ -269,7 +269,8 @@ func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, lim
 			u.full_name,
 			pl.name_fr,
 			pl.name_en,
-			pay.amount_xof,
+			pay.amount_minor,
+			pay.market,
 			pay.provider,
 			pay.payment_method,
 			pay.status,
@@ -290,7 +291,7 @@ func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, lim
 	var payments []domain.AdminPayment
 	for rows.Next() {
 		var p domain.AdminPayment
-		if err := rows.Scan(&p.ID, &p.CustomerName, &p.PlanNameFR, &p.PlanNameEN, &p.AmountXOF, &p.Provider, &p.PaymentMethod, &p.Status, &p.PaidAt, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.CustomerName, &p.PlanNameFR, &p.PlanNameEN, &p.AmountMinor, &p.Market, &p.Provider, &p.PaymentMethod, &p.Status, &p.PaidAt, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		payments = append(payments, p)

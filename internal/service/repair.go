@@ -156,7 +156,7 @@ func (s *RepairService) AdminUpdateAmount(ctx context.Context, ac *auth.AuthCont
 		return nil, appErr
 	}
 
-	booking.RepairAmountXOF = &amountXOF
+	booking.RepairAmountMinor = &amountXOF
 	if err := s.repo.Update(ctx, booking); err != nil {
 		return nil, domain.InternalError(err)
 	}

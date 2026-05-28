@@ -23,18 +23,22 @@ func NewClaimRepository(pool *pgxpool.Pool) *ClaimRepository {
 }
 
 const claimColumns = `id, org_id, user_id, device_id, subscription_id, claim_type, description,
-       status, amount_xof, filed_at, reviewed_at, settled_at, created_at, updated_at`
+       status, amount_minor, market, filed_at, reviewed_at, settled_at, created_at, updated_at`
 
 // Create inserts a new claim.
 func (r *ClaimRepository) Create(ctx context.Context, c *domain.Claim) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	market := c.Market
+	if market == "" {
+		market = domain.MarketSN
+	}
 	return r.pool.QueryRow(ctx, `
-		INSERT INTO claims (org_id, user_id, device_id, subscription_id, claim_type, description, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO claims (org_id, user_id, device_id, subscription_id, claim_type, description, status, market)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, filed_at, created_at, updated_at
-	`, c.OrgID, c.UserID, c.DeviceID, c.SubscriptionID, c.ClaimType, c.Description, c.Status).Scan(&c.ID, &c.FiledAt, &c.CreatedAt, &c.UpdatedAt)
+	`, c.OrgID, c.UserID, c.DeviceID, c.SubscriptionID, c.ClaimType, c.Description, c.Status, market).Scan(&c.ID, &c.FiledAt, &c.CreatedAt, &c.UpdatedAt)
 }
 
 // GetByID returns a claim by ID.
@@ -45,7 +49,7 @@ func (r *ClaimRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Cl
 	var c domain.Claim
 	err := r.pool.QueryRow(ctx, `SELECT `+claimColumns+` FROM claims WHERE id = $1`, id).Scan(
 		&c.ID, &c.OrgID, &c.UserID, &c.DeviceID, &c.SubscriptionID, &c.ClaimType, &c.Description,
-		&c.Status, &c.AmountXOF, &c.FiledAt, &c.ReviewedAt, &c.SettledAt, &c.CreatedAt, &c.UpdatedAt,
+		&c.Status, &c.AmountMinor, &c.Market, &c.FiledAt, &c.ReviewedAt, &c.SettledAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -114,9 +118,9 @@ func (r *ClaimRepository) Update(ctx context.Context, c *domain.Claim) error {
 	defer cancel()
 
 	_, err := r.pool.Exec(ctx, `
-		UPDATE claims SET status = $2, amount_xof = $3, reviewed_at = $4, settled_at = $5, updated_at = now()
+		UPDATE claims SET status = $2, amount_minor = $3, reviewed_at = $4, settled_at = $5, updated_at = now()
 		WHERE id = $1
-	`, c.ID, c.Status, c.AmountXOF, c.ReviewedAt, c.SettledAt)
+	`, c.ID, c.Status, c.AmountMinor, c.ReviewedAt, c.SettledAt)
 	return err
 }
 
@@ -142,7 +146,7 @@ func scanClaims(rows pgx.Rows) ([]domain.Claim, error) {
 		var c domain.Claim
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.UserID, &c.DeviceID, &c.SubscriptionID, &c.ClaimType, &c.Description,
-			&c.Status, &c.AmountXOF, &c.FiledAt, &c.ReviewedAt, &c.SettledAt, &c.CreatedAt, &c.UpdatedAt,
+			&c.Status, &c.AmountMinor, &c.Market, &c.FiledAt, &c.ReviewedAt, &c.SettledAt, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

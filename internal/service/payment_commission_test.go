@@ -26,7 +26,7 @@ func TestCreatePartnerCommissionForFirstSuccessfulPaymentCreatesCommission(t *te
 		OrgID:     orgID,
 		UserID:    userID,
 		PlanID:    planID,
-		AmountXOF: 12000,
+		AmountMinor: 12000,
 		Status:    domain.PaymentStatusCompleted,
 		PaidAt:    &paidAt,
 		CreatedAt: paidAt.Add(-time.Minute),
@@ -104,7 +104,7 @@ func TestCreatePartnerCommissionForFirstSuccessfulPaymentSkipsWhenPaymentIsNotFi
 		OrgID:     orgID,
 		UserID:    userID,
 		PlanID:    uuid.New(),
-		AmountXOF: 9000,
+		AmountMinor: 9000,
 		Status:    domain.PaymentStatusCompleted,
 	}
 
@@ -113,7 +113,7 @@ func TestCreatePartnerCommissionForFirstSuccessfulPaymentSkipsWhenPaymentIsNotFi
 		OrgID:     orgID,
 		UserID:    userID,
 		PlanID:    uuid.New(),
-		AmountXOF: 5000,
+		AmountMinor: 5000,
 		Status:    domain.PaymentStatusCompleted,
 	}
 

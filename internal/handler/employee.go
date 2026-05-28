@@ -296,7 +296,7 @@ func (h *EmployeeHandler) UpdateRepairAmount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	item, serviceErr := h.svc.UpdateRepairAmount(r.Context(), ac, repairID, req.RepairAmountXOF)
+	item, serviceErr := h.svc.UpdateRepairAmount(r.Context(), ac, repairID, req.RepairAmountMinor)
 	if serviceErr != nil {
 		WriteError(w, r, serviceErr)
 		return

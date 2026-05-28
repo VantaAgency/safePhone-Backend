@@ -201,6 +201,7 @@ func (s *StripeService) RegisterDevice(
 		Model:      p.Model,
 		IMEI:       p.IMEI,
 		Status:     domain.DeviceStatusActive,
+		Market:     domain.MarketUS,
 	}
 	if err := s.devices.Create(ctx, device); err != nil {
 		slog.Error("us register device: create device failed", "error", err, "user_id", user.ID)

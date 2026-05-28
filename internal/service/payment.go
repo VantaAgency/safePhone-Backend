@@ -147,7 +147,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		OrgID:          ac.OrgID,
 		UserID:         ac.UserID,
 		PlanID:         planID,
-		AmountXOF:      amount,
+		AmountMinor:      amount,
 		Currency:       dexpayCurrencyXOF,
 		Provider:       dexpayProviderName,
 		Status:         domain.PaymentStatusPending,
@@ -197,12 +197,12 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		payment.SubscriptionID = sub.ID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO payments (
-				id, org_id, user_id, plan_id, subscription_id, amount_xof, currency,
+				id, org_id, user_id, plan_id, subscription_id, amount_minor, currency,
 				provider, payment_method, status, provider_ref, idempotency_key
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING created_at, updated_at
-		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountXOF, payment.Currency,
+		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountMinor, payment.Currency,
 			payment.Provider, payment.PaymentMethod, payment.Status, payment.ProviderRef, payment.IdempotencyKey,
 		).Scan(&payment.CreatedAt, &payment.UpdatedAt)
 		if err != nil {
@@ -509,7 +509,7 @@ func (s *PaymentService) Resume(ctx context.Context, ac *auth.AuthContext, id uu
 		return nil, domain.NotFound("plan")
 	}
 
-	attempt, err := s.createPaymentAttempt(ctx, ac, sub, payment.AmountXOF, nil)
+	attempt, err := s.createPaymentAttempt(ctx, ac, sub, payment.AmountMinor, nil)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
@@ -559,7 +559,7 @@ func (s *PaymentService) buildCheckoutSessionRequest(
 	return dexpay.CreateCheckoutSessionRequest{
 		Reference:  providerRefValue(payment),
 		ItemName:   buildCheckoutItemName(plan, sub.BillingCycle),
-		Amount:     payment.AmountXOF,
+		Amount:     payment.AmountMinor,
 		Currency:   payment.Currency,
 		CountryISO: dexpayCountrySN,
 		WebhookURL: s.buildCheckoutWebhookURL(),
@@ -921,7 +921,7 @@ func (s *PaymentService) createPaymentAttempt(ctx context.Context, ac *auth.Auth
 		UserID:         ac.UserID,
 		PlanID:         sub.PlanID,
 		SubscriptionID: sub.ID,
-		AmountXOF:      amount,
+		AmountMinor:      amount,
 		Currency:       dexpayCurrencyXOF,
 		Provider:       dexpayProviderName,
 		Status:         domain.PaymentStatusPending,
@@ -962,7 +962,7 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 		OrgID:          ac.OrgID,
 		UserID:         ac.UserID,
 		PlanID:         planID,
-		AmountXOF:      amount,
+		AmountMinor:      amount,
 		Currency:       dexpayCurrencyXOF,
 		Provider:       dexpayProviderName,
 		Status:         domain.PaymentStatusPending,
@@ -997,12 +997,12 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 		payment.SubscriptionID = sub.ID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO payments (
-				id, org_id, user_id, plan_id, subscription_id, amount_xof, currency,
+				id, org_id, user_id, plan_id, subscription_id, amount_minor, currency,
 				provider, payment_method, status, provider_ref, idempotency_key
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING created_at, updated_at
-		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountXOF, payment.Currency,
+		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountMinor, payment.Currency,
 			payment.Provider, payment.PaymentMethod, payment.Status, payment.ProviderRef, payment.IdempotencyKey,
 		).Scan(&payment.CreatedAt, &payment.UpdatedAt)
 		if err != nil {
@@ -1344,9 +1344,9 @@ func (s *PaymentService) createPartnerCommissionForFirstSuccessfulPayment(ctx co
 		ClientUserID:         &clientUserID,
 		PaymentID:            &paymentID,
 		PlanID:               &planID,
-		BaseAmountXOF:        payment.AmountXOF,
+		BaseAmountXOF:        payment.AmountMinor,
 		CommissionPercentage: partner.CommissionPercentage,
-		CommissionAmountXOF:  calculateCommissionAmountXOF(payment.AmountXOF, partner.CommissionPercentage),
+		CommissionAmountXOF:  calculateCommissionAmountXOF(payment.AmountMinor, partner.CommissionPercentage),
 		Status:               "pending",
 	}
 	if err := s.partnerRepo.CreateCommission(ctx, commission); err != nil {
@@ -1406,9 +1406,9 @@ func (s *PaymentService) createCommercialCommissionForFirstPartnerPayment(ctx co
 		ClientUserID:         &clientUserID,
 		PaymentID:            &paymentID,
 		PlanID:               &planID,
-		BaseAmountXOF:        payment.AmountXOF,
+		BaseAmountXOF:        payment.AmountMinor,
 		CommissionPercentage: commercial.CommissionPercentage,
-		CommissionAmountXOF:  calculateCommissionAmountXOF(payment.AmountXOF, commercial.CommissionPercentage),
+		CommissionAmountXOF:  calculateCommissionAmountXOF(payment.AmountMinor, commercial.CommissionPercentage),
 		Status:               "pending",
 	}
 	if err := s.commercialRepo.CreateCommissionForFirstPartnerPayment(ctx, commission); err != nil {

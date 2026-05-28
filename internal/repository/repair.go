@@ -37,8 +37,8 @@ func NewRepairRepository(pool *pgxpool.Pool) *RepairRepository {
 
 const repairColumns = `id, org_id, user_id, reference, device_brand, device_model, repair_type,
        service_mode, center_id, preferred_date, preferred_time, scheduled_date, scheduled_time,
-       customer_name, customer_phone, customer_phone_normalized, status, repair_amount_xof,
-       request_source, created_at, updated_at`
+       customer_name, customer_phone, customer_phone_normalized, status, repair_amount_minor,
+       market, request_source, created_at, updated_at`
 
 // generateReference creates a unique MBT-XXXXXX reference.
 func generateReference() string {
@@ -68,12 +68,16 @@ func (r *RepairRepository) Create(ctx context.Context, booking *domain.RepairBoo
 	for range 5 {
 		ref := generateReference()
 		booking.Reference = ref
+		market := booking.Market
+		if market == "" {
+			market = domain.MarketSN
+		}
 		created, err := scanRepairBooking(r.pool.QueryRow(ctx, `
 			INSERT INTO repair_bookings
 				(org_id, user_id, reference, device_brand, device_model, repair_type, service_mode,
 				 center_id, preferred_date, preferred_time, customer_name, customer_phone,
-				 customer_phone_normalized, status, request_source)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+				 customer_phone_normalized, status, market, request_source)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			RETURNING `+repairColumns+`
 		`,
 			orgID, booking.UserID, ref,
@@ -81,7 +85,7 @@ func (r *RepairRepository) Create(ctx context.Context, booking *domain.RepairBoo
 			booking.ServiceMode, booking.CenterID,
 			booking.PreferredDate, booking.PreferredTime,
 			booking.CustomerName, booking.CustomerPhone,
-			booking.CustomerPhoneNormalized, booking.Status, booking.RequestSource,
+			booking.CustomerPhoneNormalized, booking.Status, market, booking.RequestSource,
 		))
 		if err == nil {
 			if created != nil {
@@ -184,10 +188,10 @@ func (r *RepairRepository) Update(ctx context.Context, booking *domain.RepairBoo
 			status = $2,
 			scheduled_date = $3,
 			scheduled_time = $4,
-			repair_amount_xof = $5,
+			repair_amount_minor = $5,
 			updated_at = now()
 		WHERE id = $1
-	`, booking.ID, booking.Status, booking.ScheduledDate, booking.ScheduledTime, booking.RepairAmountXOF)
+	`, booking.ID, booking.Status, booking.ScheduledDate, booking.ScheduledTime, booking.RepairAmountMinor)
 	return err
 }
 
@@ -241,7 +245,8 @@ func scanRepairBooking(scanner interface{ Scan(dest ...any) error }) (*domain.Re
 		&booking.CustomerPhone,
 		&booking.CustomerPhoneNormalized,
 		&booking.Status,
-		&booking.RepairAmountXOF,
+		&booking.RepairAmountMinor,
+		&booking.Market,
 		&booking.RequestSource,
 		&booking.CreatedAt,
 		&booking.UpdatedAt,

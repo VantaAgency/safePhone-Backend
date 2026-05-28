@@ -52,7 +52,7 @@ type UpdateRepairStatusRequest struct {
 
 // UpdateRepairAmountRequest is the request body for admin repair amount updates.
 type UpdateRepairAmountRequest struct {
-	RepairAmountXOF int `json:"repair_amount_xof" validate:"min=0"`
+	RepairAmountMinor int `json:"repair_amount_minor" validate:"min=0"`
 }
 
 // CreateBooking handles POST /api/v1/repairs (public).
@@ -289,7 +289,7 @@ func (h *RepairHandler) AdminUpdateAmount(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	booking, appErr := h.svc.AdminUpdateAmount(r.Context(), ac, id, req.RepairAmountXOF)
+	booking, appErr := h.svc.AdminUpdateAmount(r.Context(), ac, id, req.RepairAmountMinor)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
