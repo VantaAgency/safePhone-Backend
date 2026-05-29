@@ -482,6 +482,7 @@ func scanActiveSubscriptionSummary(
 		&sub.PlanID,
 		&sub.Status,
 		&sub.BillingCycle,
+		&sub.Market,
 		&sub.CurrentPeriodStart,
 		&sub.CurrentPeriodEnd,
 		&sub.CancelledAt,
