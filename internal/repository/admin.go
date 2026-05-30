@@ -35,22 +35,32 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 	defer cancel()
 
 	stats := &domain.AdminStats{
-		RevenueByProvider: make(map[string]int),
+		RevenueByProvider: []domain.ProviderRevenue{},
 	}
 
 	var revenueByProvider json.RawMessage
 	if err := r.pool.QueryRow(ctx, `
 		WITH revenue_by_provider AS (
+			-- Group by (provider, market) so currencies are NEVER summed:
+			-- 1499 cents (USD) + 3000 XOF would produce a nonsense total.
+			-- The frontend renders one card per row using CurrencyForMarket.
 			SELECT COALESCE(
-				jsonb_object_agg(provider, amount_minor),
-				'{}'::jsonb
+				jsonb_agg(
+					jsonb_build_object(
+						'provider', provider,
+						'market', market,
+						'amount_minor', amount_minor
+					)
+					ORDER BY market, provider
+				),
+				'[]'::jsonb
 			) AS payload
 			FROM (
-				SELECT provider, SUM(amount_minor)::int AS amount_minor
+				SELECT provider, market, SUM(amount_minor)::int AS amount_minor
 				FROM payments
 				WHERE org_id = $1
 				  AND status = 'completed'
-				GROUP BY provider
+				GROUP BY provider, market
 			) grouped_revenue
 		)
 		SELECT
@@ -74,7 +84,9 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 				FROM users
 				WHERE org_id = $1
 				  AND deleted_at IS NULL
-				  AND role = 'member'
+				  -- Mirror the Customers list filter — see ListCustomers for
+				  -- the rationale. Keep these in sync.
+				  AND role IN ('member', 'partner', 'commercial')
 			),
 			(
 				SELECT COUNT(*)::int
@@ -196,7 +208,13 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 		WHERE u.org_id = $1
 		  AND u.deleted_at IS NULL
 		  AND ($2 = '' OR lower(u.full_name) LIKE '%' || lower($2) || '%' OR lower(u.email) LIKE '%' || lower($2) || '%')
-		  AND u.role = 'member'
+		  -- "Customer" = anyone who could buy a plan. Partners and commercials
+		  -- often subscribe to a plan for their own phone too; excluding them
+		  -- here means an admin would never see those subscriptions on the
+		  -- Customers tab even though they're paying for our service. Internal
+		  -- staff (admin/employee) is the only group that shouldn't surface
+		  -- here — they have their own tabs.
+		  AND u.role IN ('member', 'partner', 'commercial')
 		GROUP BY
 			u.id,
 			u.full_name,

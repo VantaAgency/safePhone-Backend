@@ -233,14 +233,24 @@ type AdminPartnerApplication struct {
 	ReviewedAt           *time.Time `json:"reviewed_at,omitempty"`
 }
 
+// ProviderRevenue is one row of the per-(provider × market) revenue breakdown.
+// AmountMinor is stored in the minor unit appropriate for the market's
+// currency (cents for USD, whole units for XOF) — derive currency at display
+// time via CurrencyForMarket(market).
+type ProviderRevenue struct {
+	Provider    string     `json:"provider"`
+	Market      MarketCode `json:"market"`
+	AmountMinor int        `json:"amount_minor"`
+}
+
 // AdminStats aggregates platform-level statistics for the admin dashboard.
 type AdminStats struct {
-	ActiveSubscribers int            `json:"active_subscribers"`
-	MonthlyRevenueXOF int            `json:"monthly_revenue_xof"`
-	OpenClaims        int            `json:"open_claims"`
-	RevenueByProvider map[string]int `json:"revenue_by_provider"`
-	TotalCustomers    int            `json:"total_customers"`
-	TotalDevices      int            `json:"total_devices"`
+	ActiveSubscribers int               `json:"active_subscribers"`
+	MonthlyRevenueXOF int               `json:"monthly_revenue_xof"`
+	OpenClaims        int               `json:"open_claims"`
+	RevenueByProvider []ProviderRevenue `json:"revenue_by_provider"`
+	TotalCustomers    int               `json:"total_customers"`
+	TotalDevices      int               `json:"total_devices"`
 }
 
 type DashboardCoverageStatus string
