@@ -87,6 +87,7 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 				  -- Mirror the Customers list filter — see ListCustomers for
 				  -- the rationale. Keep these in sync.
 				  AND role IN ('member', 'partner', 'commercial')
+				  AND email NOT LIKE '%@safephone.test'
 			),
 			(
 				SELECT COUNT(*)::int
@@ -215,6 +216,9 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 		  -- staff (admin/employee) is the only group that shouldn't surface
 		  -- here — they have their own tabs.
 		  AND u.role IN ('member', 'partner', 'commercial')
+		  -- Hide accounts created by Playwright e2e fixtures. ".test" is a
+		  -- reserved TLD (RFC 2606) so no real user can have an email here.
+		  AND u.email NOT LIKE '%@safephone.test'
 		GROUP BY
 			u.id,
 			u.full_name,
