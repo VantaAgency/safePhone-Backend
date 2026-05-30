@@ -201,7 +201,7 @@ func main() {
 	commercialH := handler.NewCommercialHandler(commercialSvc)
 	repairH := handler.NewRepairHandler(repairSvc)
 	webhookH := handler.NewWebhookHandler(paymentSvc, cfg.DexpayAPISecret, cfg.IsDevelopment())
-	stripeSvc := service.NewStripeService(stripeClient, cfg, userRepo, subRepo, planRepo, deviceRepo, webhookEventRepo)
+	stripeSvc := service.NewStripeService(stripeClient, cfg, userRepo, subRepo, planRepo, deviceRepo, paymentRepo, webhookEventRepo)
 	stripeH := handler.NewStripeHandler(stripeSvc, stripeClient)
 
 	// Initialize auth

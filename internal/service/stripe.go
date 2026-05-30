@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,7 @@ type StripeService struct {
 	subs          *repository.SubscriptionRepository
 	plans         *repository.PlanRepository
 	devices       *repository.DeviceRepository
+	payments      *repository.PaymentRepository
 	webhookEvents *repository.WebhookEventRepository
 }
 
@@ -45,6 +47,7 @@ func NewStripeService(
 	subs *repository.SubscriptionRepository,
 	plans *repository.PlanRepository,
 	devices *repository.DeviceRepository,
+	payments *repository.PaymentRepository,
 	webhookEvents *repository.WebhookEventRepository,
 ) *StripeService {
 	return &StripeService{
@@ -54,6 +57,7 @@ func NewStripeService(
 		subs:          subs,
 		plans:         plans,
 		devices:       devices,
+		payments:      payments,
 		webhookEvents: webhookEvents,
 	}
 }
@@ -336,6 +340,79 @@ func (s *StripeService) handleInvoicePaid(ctx context.Context, event stripego.Ev
 	if err != nil {
 		slog.Error("stripe invoice.paid update failed", "error", err, "stripe_sub", subID)
 		return domain.Internal("failed to activate subscription")
+	}
+
+	// Record the Stripe payment in our `payments` table so the user / admin
+	// dashboards see this transaction alongside DEXPAY ones. Idempotency key
+	// is "stripe:invoice:<inv.ID>" — Stripe retries the same invoice event
+	// on transient failures, and we don't want duplicate rows.
+	if appErr := s.recordStripePayment(ctx, &inv, subID); appErr != nil {
+		// Logged inside; don't bubble — the subscription is already active,
+		// the payment record is a secondary book-keeping concern. Stripe
+		// will retry the webhook on a 5xx response and we'd risk
+		// re-activating the sub.
+		slog.Error("stripe invoice.paid: payment row not recorded",
+			"stripe_sub", subID,
+			"invoice_id", inv.ID,
+			"error", appErr.Message)
+	}
+	return nil
+}
+
+// recordStripePayment inserts a Payment row for a paid Stripe invoice.
+// Returns nil silently if a row with the same idempotency key already
+// exists (Stripe webhook retries).
+func (s *StripeService) recordStripePayment(
+	ctx context.Context,
+	inv *stripego.Invoice,
+	stripeSubID string,
+) *domain.AppError {
+	idempotencyKey := fmt.Sprintf("stripe:invoice:%s", inv.ID)
+
+	existing, err := s.payments.GetByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return domain.Internal("failed to check payment dedup")
+	}
+	if existing != nil {
+		return nil // already recorded — retry from Stripe
+	}
+
+	sub, err := s.subs.GetByStripeSubscriptionID(ctx, stripeSubID)
+	if err != nil {
+		return domain.Internal("failed to load subscription for payment record")
+	}
+	if sub == nil {
+		return domain.Internal("subscription not found for stripe sub " + stripeSubID)
+	}
+
+	currency := "USD"
+	if inv.Currency != "" {
+		currency = strings.ToUpper(string(inv.Currency))
+	}
+	providerRef := inv.ID
+	now := time.Now().UTC()
+	market := sub.Market
+	if market == "" {
+		market = domain.MarketUS
+	}
+
+	payment := &domain.Payment{
+		ID:             uuid.New(),
+		OrgID:          sub.OrgID,
+		UserID:         sub.UserID,
+		PlanID:         sub.PlanID,
+		SubscriptionID: sub.ID,
+		AmountMinor:    int(inv.AmountPaid),
+		Market:         market,
+		Currency:       currency,
+		Provider:       "stripe",
+		Status:         domain.PaymentStatusCompleted,
+		ProviderRef:    &providerRef,
+		IdempotencyKey: &idempotencyKey,
+		PaidAt:         &now,
+	}
+	if err := s.payments.Create(ctx, payment); err != nil {
+		return domain.Internal("failed to insert payment row")
 	}
 	return nil
 }

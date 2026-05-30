@@ -132,6 +132,37 @@ func (r *SubscriptionRepository) FindUSPendingSubscriptionWithoutDevice(
 	return &s, nil
 }
 
+// GetByStripeSubscriptionID returns the subscription row keyed by Stripe's
+// subscription ID. Used by invoice webhooks to find the owning user / org /
+// plan when recording a Payment row.
+func (r *SubscriptionRepository) GetByStripeSubscriptionID(
+	ctx context.Context,
+	stripeSubscriptionID string,
+) (*domain.Subscription, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var s domain.Subscription
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, org_id, user_id, COALESCE(device_id, '00000000-0000-0000-0000-000000000000'::uuid), plan_id,
+		       status, billing_cycle, market, current_period_start, current_period_end,
+		       cancelled_at, created_at, updated_at
+		FROM subscriptions
+		WHERE stripe_subscription_id = $1
+	`, stripeSubscriptionID).Scan(
+		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID,
+		&s.Status, &s.BillingCycle, &s.Market, &s.CurrentPeriodStart, &s.CurrentPeriodEnd,
+		&s.CancelledAt, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
 // AttachDevice links a device to a subscription. Idempotent: no-op if the
 // subscription already has a device.
 func (r *SubscriptionRepository) AttachDevice(
