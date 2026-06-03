@@ -90,6 +90,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 	deviceType domain.DeviceType, brand, model, imei string, metadata domain.DeviceMetadata,
 	planID uuid.UUID, billingCycle string,
 	idempotencyKey *string,
+	verificationPhotos []string, verificationVideo string,
 ) (*CheckoutResult, *domain.AppError) {
 	if s.dexpayClient == nil && !s.devMode {
 		return nil, domain.PaymentGatewayError(fmt.Errorf("DEXPAY is not configured: missing validated backend credentials"))
@@ -173,6 +174,31 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		device.Metadata = metadata
 		device.IMEI = imei
 		device.Status = domain.DeviceStatusPending
+
+		// Plans v2: attach verification media if the wizard supplied any.
+		// The admin reviews them via the Verifications tab and either
+		// approves (device.verification_status → 'approved', sub flips
+		// to active + activated_at = now()) or rejects with a reason.
+		if len(verificationPhotos) > 0 || verificationVideo != "" {
+			var videoPtr *string
+			if verificationVideo != "" {
+				v := verificationVideo
+				videoPtr = &v
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE devices
+				SET verification_photos = $2,
+				    verification_video = $3,
+				    verification_status = 'pending',
+				    updated_at = now()
+				WHERE id = $1
+			`, device.ID, verificationPhotos, videoPtr); err != nil {
+				return fmt.Errorf("attach verification media: %w", err)
+			}
+			device.VerificationPhotos = verificationPhotos
+			device.VerificationVideo = videoPtr
+			device.VerificationStatus = domain.DeviceVerificationStatusPending
+		}
 
 		err = tx.QueryRow(ctx, `
 			INSERT INTO subscriptions (org_id, user_id, device_id, plan_id, status, billing_cycle,
@@ -873,10 +899,25 @@ func parseCheckoutWebhookData(data json.RawMessage) (*dexpay.CheckoutWebhookData
 }
 
 func (s *PaymentService) activateCoverage(ctx context.Context, sub *domain.Subscription, device *domain.Device) *domain.AppError {
+	// Plans v2: when the linked device is awaiting admin verification
+	// (default status for new devices since migration 000039), don't
+	// jump the subscription straight to active. Land in
+	// pending_verification so the admin approval flow gates activation
+	// — the Verifications tab flips it to active + sets activated_at.
+	// Legacy devices were backfilled to verification_status='approved'
+	// so existing customers keep the old immediate-activation path.
+	needsVerification := device != nil &&
+		device.VerificationStatus == domain.DeviceVerificationStatusPending &&
+		len(device.VerificationPhotos) > 0
+
 	if sub != nil {
 		needsUpdate := false
-		if sub.Status != domain.SubscriptionStatusActive {
-			sub.Status = domain.SubscriptionStatusActive
+		targetStatus := domain.SubscriptionStatusActive
+		if needsVerification {
+			targetStatus = domain.SubscriptionStatusPendingVerification
+		}
+		if sub.Status != targetStatus && sub.Status != domain.SubscriptionStatusActive {
+			sub.Status = targetStatus
 			needsUpdate = true
 		}
 		if sub.CurrentPeriodStart == nil || sub.CurrentPeriodEnd == nil {

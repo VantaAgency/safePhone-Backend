@@ -17,11 +17,15 @@ import (
 // It atomically creates a device, subscription, and payment in one call.
 type CreatePaymentRequest struct {
 	// Device fields
-	DeviceType string                `json:"device_type" validate:"omitempty,oneof=smartphone tablet tv computer home_electronics"`
+	DeviceType string                `json:"device_type" validate:"omitempty,oneof=smartphone tablet tv computer game_console home_electronics"`
 	Brand      string                `json:"brand" validate:"required,min=1,max=100"`
 	Model      string                `json:"model" validate:"required,min=1,max=200"`
 	Metadata   DeviceMetadataPayload `json:"metadata"`
 	IMEI       string                `json:"imei" validate:"omitempty,len=15,numeric"`
+
+	// Plans v2 verification proof
+	Photos []string `json:"photos" validate:"omitempty,dive,url"`
+	Video  string   `json:"video" validate:"omitempty,url"`
 
 	// Subscription fields
 	PlanID       string `json:"plan_id" validate:"required,uuid"`
@@ -73,6 +77,29 @@ func (h *PaymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	planID, _ := uuid.Parse(req.PlanID)
 
+	// Plans v2: same scheme allowlist as the Stripe handler. Frontend
+	// also guards via safeHttpUrl, this is defense in depth.
+	if len(req.Photos) > 0 && len(req.Photos) < 5 {
+		WriteError(w, r, domain.ValidationFailed("verification requires 5 photos", map[string]string{
+			"photos": "exactly 5 photo URLs are required",
+		}))
+		return
+	}
+	for _, p := range req.Photos {
+		if !isSafeHTTPURL(p) {
+			WriteError(w, r, domain.ValidationFailed("verification photo URLs must be http(s)", map[string]string{
+				"photos": "only http(s) URLs are accepted",
+			}))
+			return
+		}
+	}
+	if req.Video != "" && !isSafeHTTPURL(req.Video) {
+		WriteError(w, r, domain.ValidationFailed("verification video URL must be http(s)", map[string]string{
+			"video": "only http(s) URLs are accepted",
+		}))
+		return
+	}
+
 	var idempKey *string
 	if req.IdempotencyKey != "" {
 		idempKey = &req.IdempotencyKey
@@ -82,6 +109,7 @@ func (h *PaymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		r.Context(), ac,
 		domain.NormalizeDeviceType(req.DeviceType), req.Brand, req.Model, req.IMEI, req.Metadata.ToDomain(),
 		planID, req.BillingCycle, idempKey,
+		req.Photos, req.Video,
 	)
 	if appErr != nil {
 		WriteError(w, r, appErr)
