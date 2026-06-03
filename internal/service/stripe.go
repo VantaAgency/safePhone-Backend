@@ -231,8 +231,12 @@ func (s *StripeService) RegisterDevice(
 	}
 
 	// Persist the verification media when supplied. The handler validated
-	// the 5-photo + 1-video minimum upstream.
+	// the 5-photo + 1-video minimum upstream; we re-check here as defense
+	// in depth so a future internal caller can't bypass the gate.
 	if len(p.Photos) > 0 || p.Video != "" {
+		if appErr := validateVerificationMedia(p.Photos, p.Video); appErr != nil {
+			return nil, appErr
+		}
 		if err := s.devices.SetVerificationMedia(ctx, device.ID, p.Photos, p.Video); err != nil {
 			slog.Error("us register device: store verification media failed", "error", err, "device_id", device.ID)
 			return nil, domain.Internal("failed to record verification media")

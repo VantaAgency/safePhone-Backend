@@ -109,6 +109,10 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		}
 	}
 
+	if appErr := validateVerificationMedia(verificationPhotos, verificationVideo); appErr != nil {
+		return nil, appErr
+	}
+
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil {
 		return nil, domain.InternalError(err)

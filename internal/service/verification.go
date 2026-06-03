@@ -1,0 +1,45 @@
+package service
+
+import (
+	"net/url"
+
+	"github.com/cherif-safephone/safephone-backend/internal/domain"
+)
+
+// validateVerificationMedia is a defense-in-depth gate around the same
+// rules the HTTP handlers enforce: 0 or exactly 5 photo URLs, every URL
+// http(s). Service callers go through here so that if a new caller ever
+// skips the handler-side validation (CLI tool, future API, internal
+// scheduler, etc.) we still refuse non-http(s) values that would render
+// as <a href> in the admin tab.
+func validateVerificationMedia(photos []string, video string) *domain.AppError {
+	if len(photos) > 0 && len(photos) < 5 {
+		return domain.ValidationFailed("verification requires 5 photos", map[string]string{
+			"photos": "exactly 5 photo URLs are required",
+		})
+	}
+	for _, p := range photos {
+		if !isSafeHTTPVerificationURL(p) {
+			return domain.ValidationFailed("verification photo URLs must be http(s)", map[string]string{
+				"photos": "only http(s) URLs are accepted",
+			})
+		}
+	}
+	if video != "" && !isSafeHTTPVerificationURL(video) {
+		return domain.ValidationFailed("verification video URL must be http(s)", map[string]string{
+			"video": "only http(s) URLs are accepted",
+		})
+	}
+	return nil
+}
+
+func isSafeHTTPVerificationURL(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
