@@ -62,8 +62,9 @@ type Config struct {
 	S3Bucket          string `env:"S3_BUCKET"`
 	S3AccessKeyID     string `env:"S3_ACCESS_KEY_ID"`
 	S3SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY"`
-	S3ActivityPrefix  string `env:"S3_ACTIVITY_PREFIX" envDefault:"commercial-activity"`
-	S3ForcePathStyle  bool   `env:"S3_FORCE_PATH_STYLE" envDefault:"false"`
+	S3ActivityPrefix     string `env:"S3_ACTIVITY_PREFIX" envDefault:"commercial-activity"`
+	S3VerificationPrefix string `env:"S3_VERIFICATION_PREFIX" envDefault:"verification-uploads"`
+	S3ForcePathStyle     bool   `env:"S3_FORCE_PATH_STYLE" envDefault:"false"`
 }
 
 // IsDevelopment returns true if the application is running in development mode.

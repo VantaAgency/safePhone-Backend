@@ -117,6 +117,28 @@ func main() {
 		slog.Info("local activity photo storage enabled", "path", "uploads/commercial-activity")
 	}
 
+	verificationMediaStore := storage.VerificationMediaStore(storage.NewLocalVerificationMediaStore("uploads/verification-media"))
+	if cfg.S3Enabled() {
+		s3Verif, err := storage.NewS3VerificationMediaStore(ctx, storage.S3VerificationMediaStoreConfig{
+			Endpoint:       cfg.S3Endpoint,
+			Region:         cfg.S3Region,
+			Bucket:         cfg.S3Bucket,
+			AccessKeyID:    cfg.S3AccessKeyID,
+			SecretKey:      cfg.S3SecretAccessKey,
+			Prefix:         cfg.S3VerificationPrefix,
+			ForcePathStyle: cfg.S3ForcePathStyle,
+			Fallback:       verificationMediaStore,
+		})
+		if err != nil {
+			slog.Error("failed to initialize S3 verification media storage", "error", err)
+			os.Exit(1)
+		}
+		verificationMediaStore = s3Verif
+		slog.Info("S3 verification media storage enabled", "bucket", cfg.S3Bucket, "prefix", cfg.S3VerificationPrefix)
+	} else {
+		slog.Info("local verification media storage enabled", "path", "uploads/verification-media")
+	}
+
 	if cfg.IsDevelopment() {
 		if err := planRepo.EnsureDevelopmentTestPlan(ctx); err != nil {
 			slog.Error("failed to ensure development test plan", "error", err)
@@ -191,6 +213,7 @@ func main() {
 	adminH := handler.NewAdminHandler(adminSvc)
 	verificationSvc := service.NewVerificationService(deviceRepo, subRepo)
 	adminVerificationsH := handler.NewAdminVerificationsHandler(verificationSvc)
+	verificationMediaH := handler.NewVerificationMediaHandler(verificationMediaStore, cfg.BackendPublicURL)
 	employeeH := handler.NewEmployeeHandler(employeeSvc)
 	dashboardH := handler.NewDashboardHandler(dashboardSvc)
 	planH := handler.NewPlanHandler(planSvc)
@@ -260,6 +283,10 @@ func main() {
 			r.Get("/devices/{id}", deviceH.Get)
 			r.Put("/devices/{id}", deviceH.Update)
 			r.Delete("/devices/{id}", deviceH.Delete)
+
+			// Plans v2: verification media upload + proxy
+			r.Post("/devices/verification-media", verificationMediaH.Upload)
+			r.Get("/devices/verification-media/{userID}/{filename}", verificationMediaH.Serve)
 
 			// Subscriptions (creation is handled atomically via POST /payments)
 			r.Get("/subscriptions", subH.List)
