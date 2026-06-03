@@ -18,11 +18,19 @@ type StripeCheckoutRequest struct {
 	PlanSlug string `json:"plan_slug" validate:"required,min=3,max=64"`
 }
 
-// RegisterUSDeviceRequest attaches a device to the user's pending US subscription.
+// RegisterUSDeviceRequest attaches a device to the user's pending US
+// subscription. Plans v2 added the verification proof fields — the
+// handler enforces a 5-photo minimum + 1 video; the service layer
+// stores them onto the device row and the admin reviews them via the
+// Verifications tab before the subscription leaves pending_verification.
 type RegisterUSDeviceRequest struct {
-	Brand string `json:"brand" validate:"required,min=1,max=100"`
-	Model string `json:"model" validate:"required,min=1,max=200"`
-	IMEI  string `json:"imei" validate:"omitempty,len=15,numeric"`
+	Brand        string   `json:"brand" validate:"required,min=1,max=100"`
+	Model        string   `json:"model" validate:"required,min=1,max=200"`
+	IMEI         string   `json:"imei" validate:"omitempty,len=15,numeric"`
+	DeviceType   string   `json:"device_type" validate:"omitempty,oneof=smartphone tablet computer game_console tv"`
+	SerialNumber string   `json:"serial_number" validate:"omitempty,max=120"`
+	Photos       []string `json:"photos" validate:"omitempty,dive,url"`
+	Video        string   `json:"video" validate:"omitempty,url"`
 }
 
 // StripeHandler exposes Stripe checkout, webhook, and US device registration.
@@ -97,10 +105,25 @@ func (h *StripeHandler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Plans v2 verification gate. Enforce the 5+1 minimum once the
+	// upload route handler exists; until the frontend ships the wizard,
+	// allow empty arrays so the existing register-device form keeps
+	// working without verification.
+	if len(req.Photos) > 0 && len(req.Photos) < 5 {
+		WriteError(w, r, domain.ValidationFailed("verification requires 5 photos", map[string]string{
+			"photos": "exactly 5 photo URLs are required",
+		}))
+		return
+	}
+
 	result, appErr := h.svc.RegisterDevice(r.Context(), ac, service.RegisterDeviceParams{
-		Brand: req.Brand,
-		Model: req.Model,
-		IMEI:  req.IMEI,
+		Brand:        req.Brand,
+		Model:        req.Model,
+		IMEI:         req.IMEI,
+		DeviceType:   req.DeviceType,
+		SerialNumber: req.SerialNumber,
+		Photos:       req.Photos,
+		Video:        req.Video,
 	})
 	if appErr != nil {
 		WriteError(w, r, appErr)

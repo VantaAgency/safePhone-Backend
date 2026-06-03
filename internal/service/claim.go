@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,16 +11,31 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 )
 
+// itoa is a tiny helper for embedding ints in the waiting-period error
+// message without pulling fmt into the hot path.
+func itoa(n int) string { return strconv.Itoa(n) }
+
 // ClaimService handles claim business logic.
 type ClaimService struct {
 	repo       domain.ClaimRepository
 	deviceRepo domain.DeviceRepository
 	subRepo    domain.SubscriptionRepository
+	planRepo   domain.PlanRepository
 }
 
 // NewClaimService creates a new claim service.
-func NewClaimService(repo domain.ClaimRepository, deviceRepo domain.DeviceRepository, subRepo domain.SubscriptionRepository) *ClaimService {
-	return &ClaimService{repo: repo, deviceRepo: deviceRepo, subRepo: subRepo}
+func NewClaimService(
+	repo domain.ClaimRepository,
+	deviceRepo domain.DeviceRepository,
+	subRepo domain.SubscriptionRepository,
+	planRepo domain.PlanRepository,
+) *ClaimService {
+	return &ClaimService{
+		repo:       repo,
+		deviceRepo: deviceRepo,
+		subRepo:    subRepo,
+		planRepo:   planRepo,
+	}
 }
 
 // Create files a new insurance claim after verifying eligibility.
@@ -45,15 +61,35 @@ func (s *ClaimService) Create(ctx context.Context, ac *auth.AuthContext, deviceI
 		return nil, domain.NotFound("subscription")
 	}
 	if sub.Status != domain.SubscriptionStatusActive {
+		// pending_verification has its own friendlier message — the user
+		// can resolve it themselves by re-uploading proof.
+		if sub.Status == domain.SubscriptionStatusPendingVerification {
+			return nil, domain.BadRequest("subscription is pending verification — your photos and video are still being reviewed")
+		}
 		return nil, domain.BadRequest("subscription is not active")
 	}
 
-	// 3. Verify subscription covers this device
+	// 3. 30-day claim waiting period (plans v2). Legacy subs activated
+	//    before plans v2 have activated_at = NULL and skip this gate via
+	//    COALESCE — we don't retroactively lock long-standing customers
+	//    out of their coverage.
+	if plan, err := s.planRepo.GetByID(ctx, sub.PlanID); err == nil && plan != nil && plan.ClaimWaitingPeriodDays > 0 && sub.ActivatedAt != nil {
+		waitingPeriod := time.Duration(plan.ClaimWaitingPeriodDays) * 24 * time.Hour
+		eligibleAt := sub.ActivatedAt.Add(waitingPeriod)
+		if time.Now().Before(eligibleAt) {
+			remaining := int(time.Until(eligibleAt).Hours()/24) + 1
+			return nil, domain.BadRequest("first claim available in " + itoa(remaining) + " day(s) — the " + itoa(plan.ClaimWaitingPeriodDays) + "-day waiting period has not yet elapsed")
+		}
+	} else if err != nil {
+		return nil, domain.InternalError(err)
+	}
+
+	// 4. Verify subscription covers this device
 	if sub.DeviceID != deviceID {
 		return nil, domain.BadRequest("subscription does not cover this device")
 	}
 
-	// 4. Check for duplicate pending/review claims
+	// 5. Check for duplicate pending/review claims
 	exists, err := s.repo.ExistsPendingByDeviceAndType(ctx, ac.OrgID, deviceID, claimType)
 	if err != nil {
 		return nil, domain.InternalError(err)
@@ -62,7 +98,7 @@ func (s *ClaimService) Create(ctx context.Context, ac *auth.AuthContext, deviceI
 		return nil, domain.Conflict("a pending claim already exists for this device and type")
 	}
 
-	// 5. Create claim
+	// 6. Create claim
 	var desc *string
 	if description != "" {
 		desc = &description

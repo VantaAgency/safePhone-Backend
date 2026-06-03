@@ -27,6 +27,8 @@ func NewPlanRepository(pool *pgxpool.Pool) *PlanRepository {
 const planColumns = `id, slug, name_fr, name_en, price_monthly, price_annual, tier,
        device_range_fr, device_range_en, features_fr, features_en,
        not_covered_fr, not_covered_en, service_time, is_popular, sort_order,
+       max_smartphones, max_tablets, max_computers, max_game_consoles, max_tvs,
+       claim_waiting_period_days,
        created_at, updated_at`
 
 // List returns all plans ordered by sort_order.
@@ -142,6 +144,8 @@ func scanPlan(rows pgx.Rows) (*domain.Plan, error) {
 		&p.ID, &p.Slug, &p.NameFR, &p.NameEN, &p.PriceMonthly, &p.PriceAnnual, &p.Tier,
 		&p.DeviceRangeFR, &p.DeviceRangeEN, &featuresFR, &featuresEN,
 		&notCoveredFR, &notCoveredEN, &p.ServiceTime, &p.IsPopular, &p.SortOrder,
+		&p.MaxSmartphones, &p.MaxTablets, &p.MaxComputers, &p.MaxGameConsoles, &p.MaxTVs,
+		&p.ClaimWaitingPeriodDays,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
@@ -164,6 +168,8 @@ func scanPlanRow(row pgx.Row) (*domain.Plan, error) {
 		&p.ID, &p.Slug, &p.NameFR, &p.NameEN, &p.PriceMonthly, &p.PriceAnnual, &p.Tier,
 		&p.DeviceRangeFR, &p.DeviceRangeEN, &featuresFR, &featuresEN,
 		&notCoveredFR, &notCoveredEN, &p.ServiceTime, &p.IsPopular, &p.SortOrder,
+		&p.MaxSmartphones, &p.MaxTablets, &p.MaxComputers, &p.MaxGameConsoles, &p.MaxTVs,
+		&p.ClaimWaitingPeriodDays,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {

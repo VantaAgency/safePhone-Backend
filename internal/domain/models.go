@@ -51,8 +51,38 @@ type Plan struct {
 	ServiceTime   string    `json:"service_time"`
 	IsPopular     bool      `json:"is_popular"`
 	SortOrder     int       `json:"sort_order"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// Device coverage matrix — how many devices of each type this plan
+	// allows the subscriber to register. 0 means the type isn't covered.
+	MaxSmartphones   int `json:"max_smartphones"`
+	MaxTablets       int `json:"max_tablets"`
+	MaxComputers     int `json:"max_computers"`
+	MaxGameConsoles  int `json:"max_game_consoles"`
+	MaxTVs           int `json:"max_tvs"`
+	// Days that must elapse between subscription activation and the first
+	// eligible claim. Configurable per plan; production plans = 30.
+	ClaimWaitingPeriodDays int `json:"claim_waiting_period_days"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+// MaxForDeviceType returns the per-plan cap for a given device type. Used
+// when validating subscription_devices attachments to refuse over-cap
+// enrolments without scattering the switch logic across the codebase.
+func (p Plan) MaxForDeviceType(t DeviceType) int {
+	switch t {
+	case DeviceTypeSmartphone:
+		return p.MaxSmartphones
+	case DeviceTypeTablet:
+		return p.MaxTablets
+	case DeviceTypeComputer:
+		return p.MaxComputers
+	case DeviceTypeGameConsole:
+		return p.MaxGameConsoles
+	case DeviceTypeTV:
+		return p.MaxTVs
+	default:
+		return 0
+	}
 }
 
 const DevelopmentTestPlanSlug = "test-plan-dev"
@@ -66,7 +96,17 @@ const (
 	DeviceTypeTablet          DeviceType = "tablet"
 	DeviceTypeTV              DeviceType = "tv"
 	DeviceTypeComputer        DeviceType = "computer"
+	DeviceTypeGameConsole     DeviceType = "game_console"
 	DeviceTypeHomeElectronics DeviceType = "home_electronics"
+)
+
+// DeviceVerificationStatus enumerates the per-device admin review states.
+type DeviceVerificationStatus string
+
+const (
+	DeviceVerificationStatusPending  DeviceVerificationStatus = "pending"
+	DeviceVerificationStatusApproved DeviceVerificationStatus = "approved"
+	DeviceVerificationStatusRejected DeviceVerificationStatus = "rejected"
 )
 
 // DeviceStatus enumerates possible device states.
@@ -99,20 +139,30 @@ type Device struct {
 	IMEI       string         `json:"imei"`
 	Status     DeviceStatus   `json:"status"`
 	Market     MarketCode     `json:"market"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  *time.Time     `json:"deleted_at,omitempty"`
+	// Verification proof captured at register-device time. Admins approve
+	// or reject these from the Verifications tab; the owning subscription
+	// only flips to `active` once verification_status = 'approved'.
+	VerificationPhotos          []string                 `json:"verification_photos"`
+	VerificationVideo           *string                  `json:"verification_video,omitempty"`
+	VerificationStatus          DeviceVerificationStatus `json:"verification_status"`
+	VerifiedAt                  *time.Time               `json:"verified_at,omitempty"`
+	VerifiedBy                  *uuid.UUID               `json:"verified_by,omitempty"`
+	VerificationRejectedReason  *string                  `json:"verification_rejected_reason,omitempty"`
+	CreatedAt                   time.Time                `json:"created_at"`
+	UpdatedAt                   time.Time                `json:"updated_at"`
+	DeletedAt                   *time.Time               `json:"deleted_at,omitempty"`
 }
 
 // SubscriptionStatus enumerates possible subscription states.
 type SubscriptionStatus string
 
 const (
-	SubscriptionStatusPending   SubscriptionStatus = "pending"
-	SubscriptionStatusActive    SubscriptionStatus = "active"
-	SubscriptionStatusCancelled SubscriptionStatus = "cancelled"
-	SubscriptionStatusExpired   SubscriptionStatus = "expired"
-	SubscriptionStatusPastDue   SubscriptionStatus = "past_due"
+	SubscriptionStatusPending             SubscriptionStatus = "pending"
+	SubscriptionStatusPendingVerification SubscriptionStatus = "pending_verification"
+	SubscriptionStatusActive              SubscriptionStatus = "active"
+	SubscriptionStatusCancelled           SubscriptionStatus = "cancelled"
+	SubscriptionStatusExpired             SubscriptionStatus = "expired"
+	SubscriptionStatusPastDue             SubscriptionStatus = "past_due"
 )
 
 // Subscription links a device to a plan with billing information.
@@ -125,11 +175,27 @@ type Subscription struct {
 	Status             SubscriptionStatus `json:"status"`
 	BillingCycle       string             `json:"billing_cycle"`
 	Market             MarketCode         `json:"market"`
+	// ActivatedAt is set when an admin approves the device verification(s)
+	// and the subscription transitions out of pending_verification. The
+	// 30-day claim waiting period is computed from this moment, not from
+	// the Stripe / DEXPAY payment time. Legacy subs created before plans
+	// v2 have ActivatedAt = nil and the claim gate falls back to "no
+	// waiting period" via COALESCE.
+	ActivatedAt        *time.Time         `json:"activated_at,omitempty"`
 	CurrentPeriodStart *time.Time         `json:"current_period_start,omitempty"`
 	CurrentPeriodEnd   *time.Time         `json:"current_period_end,omitempty"`
 	CancelledAt        *time.Time         `json:"cancelled_at,omitempty"`
 	CreatedAt          time.Time          `json:"created_at"`
 	UpdatedAt          time.Time          `json:"updated_at"`
+}
+
+// SubscriptionDevice is one row of the join table tying a subscription to
+// each device it covers. Plans like us_total cover up to 4 phones + 3
+// tablets + 2 PCs + 2 consoles + 1 TV — that's a many-to-many shape.
+type SubscriptionDevice struct {
+	SubscriptionID uuid.UUID `json:"subscription_id"`
+	DeviceID       uuid.UUID `json:"device_id"`
+	AttachedAt     time.Time `json:"attached_at"`
 }
 
 // ClaimType enumerates the types of insurance claims.

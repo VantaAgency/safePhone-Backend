@@ -82,6 +82,7 @@ func main() {
 	planRepo := repository.NewPlanRepository(pool)
 	deviceRepo := repository.NewDeviceRepository(pool)
 	subRepo := repository.NewSubscriptionRepository(pool)
+	subDevicesRepo := repository.NewSubscriptionDevicesRepository(pool)
 	claimRepo := repository.NewClaimRepository(pool)
 	paymentRepo := repository.NewPaymentRepository(pool)
 	contactRepo := repository.NewContactRepository(pool)
@@ -175,7 +176,7 @@ func main() {
 	planSvc := service.NewPlanService(planRepo, cfg.IsDevelopment())
 	deviceSvc := service.NewDeviceService(deviceRepo, subRepo)
 	subSvc := service.NewSubscriptionService(subRepo, planRepo, cfg.IsDevelopment())
-	claimSvc := service.NewClaimService(claimRepo, deviceRepo, subRepo)
+	claimSvc := service.NewClaimService(claimRepo, deviceRepo, subRepo, planRepo)
 	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, commercialRepo, webhookEventRepo, dexpayClient, pool, cfg.FrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
 	contactSvc := service.NewContactService(contactRepo)
 	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, commercialRepo, pool)
@@ -188,6 +189,8 @@ func main() {
 	healthH := handler.NewHealthHandler(pool, redisClient)
 	userH := handler.NewUserHandler(userSvc)
 	adminH := handler.NewAdminHandler(adminSvc)
+	verificationSvc := service.NewVerificationService(deviceRepo, subRepo)
+	adminVerificationsH := handler.NewAdminVerificationsHandler(verificationSvc)
 	employeeH := handler.NewEmployeeHandler(employeeSvc)
 	dashboardH := handler.NewDashboardHandler(dashboardSvc)
 	planH := handler.NewPlanHandler(planSvc)
@@ -201,7 +204,7 @@ func main() {
 	commercialH := handler.NewCommercialHandler(commercialSvc)
 	repairH := handler.NewRepairHandler(repairSvc)
 	webhookH := handler.NewWebhookHandler(paymentSvc, cfg.DexpayAPISecret, cfg.IsDevelopment())
-	stripeSvc := service.NewStripeService(stripeClient, cfg, userRepo, subRepo, planRepo, deviceRepo, paymentRepo, webhookEventRepo)
+	stripeSvc := service.NewStripeService(stripeClient, cfg, userRepo, subRepo, planRepo, deviceRepo, paymentRepo, subDevicesRepo, webhookEventRepo)
 	stripeH := handler.NewStripeHandler(stripeSvc, stripeClient)
 
 	// Initialize auth
@@ -343,6 +346,11 @@ func main() {
 				r.Get("/partners/{id}/referrals", partnerH.ListAdminPartnerReferrals)
 				r.Get("/partner-applications", partnerAppH.AdminList)
 				r.Put("/partner-applications/{id}/review", partnerAppH.AdminReview)
+
+				// Plans v2 — device verification queue.
+				r.Get("/verifications", adminVerificationsH.List)
+				r.Post("/verifications/{id}/approve", adminVerificationsH.Approve)
+				r.Post("/verifications/{id}/reject", adminVerificationsH.Reject)
 			})
 
 			// Employee routes

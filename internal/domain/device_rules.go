@@ -41,6 +41,8 @@ func NormalizeDeviceType(raw string) DeviceType {
 		return DeviceTypeTV
 	case DeviceTypeComputer:
 		return DeviceTypeComputer
+	case DeviceTypeGameConsole:
+		return DeviceTypeGameConsole
 	case DeviceTypeHomeElectronics:
 		return DeviceTypeHomeElectronics
 	default:
@@ -68,8 +70,16 @@ func IsTotalPlan(plan *Plan) bool {
 	return plan != nil && strings.EqualFold(strings.TrimSpace(plan.Slug), TotalPlanSlug)
 }
 
-// PlanAllowsDeviceType enforces plan-specific device eligibility.
+// PlanAllowsDeviceType enforces plan-specific device eligibility. Under
+// plans v2 each plan declares per-type caps (Plan.MaxForDeviceType); the
+// type is allowed as long as the cap is > 0. The legacy "smartphone always
+// OK / others only on Total" rule still applies as a fallback when the
+// plan row predates v2 (all caps are 0).
 func PlanAllowsDeviceType(plan *Plan, deviceType DeviceType) bool {
+	if plan != nil && plan.MaxForDeviceType(deviceType) > 0 {
+		return true
+	}
+	// Legacy fallback for plans seeded before migration 000040.
 	if deviceType == DeviceTypeSmartphone {
 		return true
 	}

@@ -23,7 +23,7 @@ func NewSubscriptionRepository(pool *pgxpool.Pool) *SubscriptionRepository {
 }
 
 const subColumns = `id, org_id, user_id, device_id, plan_id, status, billing_cycle, market,
-       current_period_start, current_period_end, cancelled_at,
+       activated_at, current_period_start, current_period_end, cancelled_at,
        created_at, updated_at`
 
 // Create inserts a new subscription.
@@ -55,7 +55,7 @@ func (r *SubscriptionRepository) GetByID(ctx context.Context, id uuid.UUID) (*do
 
 	var s domain.Subscription
 	err := r.pool.QueryRow(ctx, `SELECT `+subColumns+` FROM subscriptions WHERE id = $1`, id).Scan(
-		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
+		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market, &s.ActivatedAt,
 		&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 		&s.CreatedAt, &s.UpdatedAt)
 
@@ -82,7 +82,7 @@ func (r *SubscriptionRepository) GetByDeviceID(ctx context.Context, deviceID uui
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, deviceID).Scan(
-		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
+		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market, &s.ActivatedAt,
 		&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -122,7 +122,7 @@ func (r *SubscriptionRepository) ListByDeviceID(ctx context.Context, deviceID uu
 	for rows.Next() {
 		var s domain.Subscription
 		if err := rows.Scan(
-			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
+			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market, &s.ActivatedAt,
 			&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 			&s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
@@ -161,7 +161,7 @@ func (r *SubscriptionRepository) ListByOrgAndUser(ctx context.Context, orgID, us
 	for rows.Next() {
 		var s domain.Subscription
 		if err := rows.Scan(
-			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market,
+			&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID, &s.Status, &s.BillingCycle, &s.Market, &s.ActivatedAt,
 			&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.CancelledAt,
 			&s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
@@ -184,9 +184,37 @@ func (r *SubscriptionRepository) Update(ctx context.Context, s *domain.Subscript
 		UPDATE subscriptions
 		SET status = $2, cancelled_at = $3,
 		    current_period_start = $4, current_period_end = $5,
+		    activated_at = $6,
 		    updated_at = now()
 		WHERE id = $1
 	`, s.ID, s.Status, s.CancelledAt,
-		s.CurrentPeriodStart, s.CurrentPeriodEnd)
+		s.CurrentPeriodStart, s.CurrentPeriodEnd, s.ActivatedAt)
 	return err
+}
+
+// SetActivatedAt transitions a subscription out of pending_verification by
+// stamping the activation moment and flipping the status to active. Returns
+// pgx.ErrNoRows if no row matches.
+func (r *SubscriptionRepository) SetActivatedAt(
+	ctx context.Context,
+	subscriptionID uuid.UUID,
+	when time.Time,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE subscriptions
+		SET activated_at = $2,
+		    status = 'active',
+		    updated_at = now()
+		WHERE id = $1
+	`, subscriptionID, when)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }

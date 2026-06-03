@@ -35,6 +35,7 @@ type StripeService struct {
 	plans         *repository.PlanRepository
 	devices       *repository.DeviceRepository
 	payments      *repository.PaymentRepository
+	subDevices    *repository.SubscriptionDevicesRepository
 	webhookEvents *repository.WebhookEventRepository
 }
 
@@ -48,6 +49,7 @@ func NewStripeService(
 	plans *repository.PlanRepository,
 	devices *repository.DeviceRepository,
 	payments *repository.PaymentRepository,
+	subDevices *repository.SubscriptionDevicesRepository,
 	webhookEvents *repository.WebhookEventRepository,
 ) *StripeService {
 	return &StripeService{
@@ -58,6 +60,7 @@ func NewStripeService(
 		plans:         plans,
 		devices:       devices,
 		payments:      payments,
+		subDevices:    subDevices,
 		webhookEvents: webhookEvents,
 	}
 }
@@ -154,10 +157,20 @@ func (s *StripeService) CreateCheckout(
 }
 
 // RegisterDeviceParams is the input for US post-checkout device registration.
+// Plans v2 added the verification fields: 5 photo URLs + 1 video URL are
+// required so an admin can review the device condition before the
+// subscription transitions to active.
 type RegisterDeviceParams struct {
-	Brand string
-	Model string
-	IMEI  string
+	Brand        string
+	Model        string
+	IMEI         string
+	DeviceType   string
+	SerialNumber string
+	// Verification media. Empty values are allowed at the service layer
+	// (the handler enforces the 5+1 minimum) so older callers that
+	// pre-date plans v2 don't break.
+	Photos []string
+	Video  string
 }
 
 // RegisterDeviceResult returns the new device + the subscription it was attached to.
@@ -197,23 +210,41 @@ func (s *StripeService) RegisterDevice(
 		return nil, domain.NotFound("US subscription awaiting device registration")
 	}
 
+	deviceType := domain.NormalizeDeviceType(p.DeviceType)
 	device := &domain.Device{
 		OrgID:      user.OrgID,
 		UserID:     user.ID,
-		DeviceType: domain.DeviceTypeSmartphone,
+		DeviceType: deviceType,
 		Brand:      p.Brand,
 		Model:      p.Model,
 		IMEI:       p.IMEI,
-		Status:     domain.DeviceStatusActive,
-		Market:     domain.MarketUS,
+		Metadata:   domain.DeviceMetadata{SerialNumber: p.SerialNumber},
+		// Devices registered under plans v2 stay pending until admin
+		// approves the verification media. Legacy callers that omit
+		// photos/video skip the gate (the field stays empty).
+		Status: domain.DeviceStatusPending,
+		Market: domain.MarketUS,
 	}
 	if err := s.devices.Create(ctx, device); err != nil {
 		slog.Error("us register device: create device failed", "error", err, "user_id", user.ID)
 		return nil, domain.Internal("failed to register device")
 	}
 
+	// Persist the verification media when supplied. The handler validated
+	// the 5-photo + 1-video minimum upstream.
+	if len(p.Photos) > 0 || p.Video != "" {
+		if err := s.devices.SetVerificationMedia(ctx, device.ID, p.Photos, p.Video); err != nil {
+			slog.Error("us register device: store verification media failed", "error", err, "device_id", device.ID)
+			return nil, domain.Internal("failed to record verification media")
+		}
+	}
+
 	if err := s.subs.AttachDevice(ctx, subscription.ID, device.ID); err != nil {
 		slog.Error("us register device: attach failed", "error", err, "subscription_id", subscription.ID, "device_id", device.ID)
+		return nil, domain.Internal("failed to attach device to subscription")
+	}
+	if err := s.subDevices.Attach(ctx, subscription.ID, device.ID); err != nil {
+		slog.Error("us register device: attach to subscription_devices failed", "error", err, "subscription_id", subscription.ID, "device_id", device.ID)
 		return nil, domain.Internal("failed to attach device to subscription")
 	}
 
@@ -328,9 +359,15 @@ func (s *StripeService) handleInvoicePaid(ctx context.Context, event stripego.Ev
 	// The canonical period is owned by customer.subscription.created /
 	// .updated; we'd overwrite it here otherwise. COALESCE in the UPDATE
 	// preserves whatever those handlers set.
+	// Plans v2: a paid invoice no longer flips the subscription straight to
+	// active. The sub enters pending_verification first, then an admin
+	// reviews the user's uploaded photos/videos and calls
+	// SubscriptionService.ConfirmVerification to set status=active +
+	// activated_at=now. Legacy claim flows that read status==active won't
+	// be triggered until verification clears.
 	err := s.subs.UpdateStripeSubscriptionState(
 		ctx, subID,
-		domain.SubscriptionStatusActive,
+		domain.SubscriptionStatusPendingVerification,
 		nil, nil, nil,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -541,7 +578,11 @@ func subscriptionPeriod(sub *stripego.Subscription) (*time.Time, *time.Time) {
 func mapStripeSubscriptionStatus(s stripego.SubscriptionStatus) domain.SubscriptionStatus {
 	switch s {
 	case stripego.SubscriptionStatusActive, stripego.SubscriptionStatusTrialing:
-		return domain.SubscriptionStatusActive
+		// Plans v2: payment OK from Stripe's view, but our sub is gated
+		// behind admin verification of the device photos/videos. We map
+		// Stripe's "active" to our pending_verification until that
+		// review clears.
+		return domain.SubscriptionStatusPendingVerification
 	case stripego.SubscriptionStatusPastDue, stripego.SubscriptionStatusUnpaid:
 		return domain.SubscriptionStatusPastDue
 	case stripego.SubscriptionStatusCanceled,

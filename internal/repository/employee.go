@@ -844,7 +844,7 @@ func (r *EmployeeRepository) listClientDeviceCoverage(ctx context.Context, orgID
 	rows, err := r.pool.Query(ctx, `
 		SELECT
 			d.id, d.org_id, d.user_id, d.device_type, d.brand, d.model, d.metadata, d.imei, d.status, d.created_at, d.updated_at, d.deleted_at,
-			s.id, s.org_id, s.user_id, s.device_id, s.plan_id, s.status, s.billing_cycle, s.market, s.current_period_start, s.current_period_end, s.cancelled_at, s.created_at, s.updated_at,
+			s.id, s.org_id, s.user_id, s.device_id, s.plan_id, s.status, s.billing_cycle, s.market, s.activated_at, s.current_period_start, s.current_period_end, s.cancelled_at, s.created_at, s.updated_at,
 			p.id, p.org_id, p.user_id, p.plan_id, p.subscription_id, p.amount_minor, p.market, p.currency, p.provider, p.payment_method, p.status, p.provider_ref, p.payment_url, p.idempotency_key, p.provider_payload, p.paid_at, p.failed_at, p.expires_at, p.created_at, p.updated_at,
 			pl.name_fr,
 			pl.name_en,
@@ -1339,6 +1339,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		subStatus        *domain.SubscriptionStatus
 		subBillingCycle  *string
 		subMarket        *string
+		subActivatedAt   *time.Time
 		subCreatedAt     *time.Time
 		subUpdatedAt     *time.Time
 		payment          domain.Payment
@@ -1385,6 +1386,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		&subStatus,
 		&subBillingCycle,
 		&subMarket,
+		&subActivatedAt,
 		&sub.CurrentPeriodStart,
 		&sub.CurrentPeriodEnd,
 		&sub.CancelledAt,
@@ -1431,6 +1433,7 @@ func scanEmployeeDeviceCoverageRow(scanner interface{ Scan(dest ...any) error })
 		sub.Status = *subStatus
 		sub.BillingCycle = *subBillingCycle
 		sub.Market = domain.MarketCode(*subMarket)
+		sub.ActivatedAt = subActivatedAt
 		sub.CreatedAt = *subCreatedAt
 		sub.UpdatedAt = *subUpdatedAt
 		subPtr = &sub

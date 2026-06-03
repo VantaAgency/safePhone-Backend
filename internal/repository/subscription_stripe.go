@@ -145,13 +145,13 @@ func (r *SubscriptionRepository) GetByStripeSubscriptionID(
 	var s domain.Subscription
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, org_id, user_id, COALESCE(device_id, '00000000-0000-0000-0000-000000000000'::uuid), plan_id,
-		       status, billing_cycle, market, current_period_start, current_period_end,
+		       status, billing_cycle, market, activated_at, current_period_start, current_period_end,
 		       cancelled_at, created_at, updated_at
 		FROM subscriptions
 		WHERE stripe_subscription_id = $1
 	`, stripeSubscriptionID).Scan(
 		&s.ID, &s.OrgID, &s.UserID, &s.DeviceID, &s.PlanID,
-		&s.Status, &s.BillingCycle, &s.Market, &s.CurrentPeriodStart, &s.CurrentPeriodEnd,
+		&s.Status, &s.BillingCycle, &s.Market, &s.ActivatedAt, &s.CurrentPeriodStart, &s.CurrentPeriodEnd,
 		&s.CancelledAt, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
