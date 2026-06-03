@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"github.com/go-playground/validator/v10"
 
@@ -12,6 +13,22 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/service"
 	stripepkg "github.com/cherif-safephone/safephone-backend/internal/stripe"
 )
+
+// isSafeHTTPURL accepts only http and https. The validator's "url" rule
+// parses anything net/url can parse, including javascript: and data:.
+// Verification URLs are stored and later rendered as <a href> in the
+// admin tab, so we tighten the gate at the API boundary as defense in
+// depth on top of the frontend safeHttpUrl helper.
+func isSafeHTTPURL(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
 
 // StripeCheckoutRequest starts a Stripe Checkout session for a US plan.
 type StripeCheckoutRequest struct {
@@ -112,6 +129,20 @@ func (h *StripeHandler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 	if len(req.Photos) > 0 && len(req.Photos) < 5 {
 		WriteError(w, r, domain.ValidationFailed("verification requires 5 photos", map[string]string{
 			"photos": "exactly 5 photo URLs are required",
+		}))
+		return
+	}
+	for _, p := range req.Photos {
+		if !isSafeHTTPURL(p) {
+			WriteError(w, r, domain.ValidationFailed("verification photo URLs must be http(s)", map[string]string{
+				"photos": "only http(s) URLs are accepted",
+			}))
+			return
+		}
+	}
+	if req.Video != "" && !isSafeHTTPURL(req.Video) {
+		WriteError(w, r, domain.ValidationFailed("verification video URL must be http(s)", map[string]string{
+			"video": "only http(s) URLs are accepted",
 		}))
 		return
 	}
