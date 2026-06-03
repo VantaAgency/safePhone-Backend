@@ -37,7 +37,7 @@ type StripeCheckoutRequest struct {
 
 // RegisterUSDeviceRequest attaches a device to the user's pending US
 // subscription. Plans v2 added the verification proof fields — the
-// handler enforces a 5-photo minimum + 1 video; the service layer
+// handler enforces a 2-photo minimum + 1 video; the service layer
 // stores them onto the device row and the admin reviews them via the
 // Verifications tab before the subscription leaves pending_verification.
 type RegisterUSDeviceRequest struct {
@@ -122,13 +122,13 @@ func (h *StripeHandler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Plans v2 verification gate. Enforce the 5+1 minimum once the
+	// Plans v2 verification gate. Enforce the 2+1 minimum once the
 	// upload route handler exists; until the frontend ships the wizard,
 	// allow empty arrays so the existing register-device form keeps
 	// working without verification.
-	if len(req.Photos) > 0 && len(req.Photos) < 5 {
-		WriteError(w, r, domain.ValidationFailed("verification requires 5 photos", map[string]string{
-			"photos": "exactly 5 photo URLs are required",
+	if len(req.Photos) > 0 && len(req.Photos) < 2 {
+		WriteError(w, r, domain.ValidationFailed("verification requires 2 photos", map[string]string{
+			"photos": "at least 2 photo URLs are required (front and back)",
 		}))
 		return
 	}

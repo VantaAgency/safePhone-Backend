@@ -79,9 +79,9 @@ func (h *PaymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Plans v2: same scheme allowlist as the Stripe handler. Frontend
 	// also guards via safeHttpUrl, this is defense in depth.
-	if len(req.Photos) > 0 && len(req.Photos) < 5 {
-		WriteError(w, r, domain.ValidationFailed("verification requires 5 photos", map[string]string{
-			"photos": "exactly 5 photo URLs are required",
+	if len(req.Photos) > 0 && len(req.Photos) < 2 {
+		WriteError(w, r, domain.ValidationFailed("verification requires 2 photos", map[string]string{
+			"photos": "at least 2 photo URLs are required (front and back)",
 		}))
 		return
 	}

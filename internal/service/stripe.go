@@ -157,7 +157,7 @@ func (s *StripeService) CreateCheckout(
 }
 
 // RegisterDeviceParams is the input for US post-checkout device registration.
-// Plans v2 added the verification fields: 5 photo URLs + 1 video URL are
+// Plans v2 added the verification fields: 2 photo URLs + 1 video URL are
 // required so an admin can review the device condition before the
 // subscription transitions to active.
 type RegisterDeviceParams struct {
@@ -167,7 +167,7 @@ type RegisterDeviceParams struct {
 	DeviceType   string
 	SerialNumber string
 	// Verification media. Empty values are allowed at the service layer
-	// (the handler enforces the 5+1 minimum) so older callers that
+	// (the handler enforces the 2+1 minimum) so older callers that
 	// pre-date plans v2 don't break.
 	Photos []string
 	Video  string
@@ -231,7 +231,7 @@ func (s *StripeService) RegisterDevice(
 	}
 
 	// Persist the verification media when supplied. The handler validated
-	// the 5-photo + 1-video minimum upstream; we re-check here as defense
+	// the 2-photo + 1-video minimum upstream; we re-check here as defense
 	// in depth so a future internal caller can't bypass the gate.
 	if len(p.Photos) > 0 || p.Video != "" {
 		if appErr := validateVerificationMedia(p.Photos, p.Video); appErr != nil {

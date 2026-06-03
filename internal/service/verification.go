@@ -7,15 +7,15 @@ import (
 )
 
 // validateVerificationMedia is a defense-in-depth gate around the same
-// rules the HTTP handlers enforce: 0 or exactly 5 photo URLs, every URL
+// rules the HTTP handlers enforce: 0 or at least 2 photo URLs, every URL
 // http(s). Service callers go through here so that if a new caller ever
 // skips the handler-side validation (CLI tool, future API, internal
 // scheduler, etc.) we still refuse non-http(s) values that would render
 // as <a href> in the admin tab.
 func validateVerificationMedia(photos []string, video string) *domain.AppError {
-	if len(photos) > 0 && len(photos) < 5 {
-		return domain.ValidationFailed("verification requires 5 photos", map[string]string{
-			"photos": "exactly 5 photo URLs are required",
+	if len(photos) > 0 && len(photos) < 2 {
+		return domain.ValidationFailed("verification requires 2 photos", map[string]string{
+			"photos": "at least 2 photo URLs are required (front and back)",
 		})
 	}
 	for _, p := range photos {

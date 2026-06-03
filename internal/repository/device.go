@@ -184,7 +184,7 @@ func (r *DeviceRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 
 // ── Verification helpers ─────────────────────────────────────────────────────
 
-// SetVerificationMedia attaches the uploaded S3 URLs (5 photos + 1 video)
+// SetVerificationMedia attaches the uploaded S3 URLs (2 photos + 1 video)
 // to a device and resets its verification_status to 'pending' so an admin
 // re-reviews after the re-upload. Returns pgx.ErrNoRows if no row matches.
 func (r *DeviceRepository) SetVerificationMedia(
