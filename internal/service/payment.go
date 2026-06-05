@@ -138,6 +138,13 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 
 	amount := planAmountForBillingCycle(plan, billingCycle)
 
+	// Every row created here inherits the plan's market — the plan is the
+	// source of truth for the currency the customer transacts in.
+	market := plan.Market
+	if market == "" {
+		market = domain.MarketSN
+	}
+
 	var imeiPtr *string
 	if imei != "" {
 		imeiPtr = &imei
@@ -152,6 +159,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		OrgID:          ac.OrgID,
 		UserID:         ac.UserID,
 		PlanID:         planID,
+		Market:         market,
 		AmountMinor:      amount,
 		Currency:       dexpayCurrencyXOF,
 		Provider:       dexpayProviderName,
@@ -162,10 +170,10 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 
 	txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
-			INSERT INTO devices (org_id, user_id, device_type, brand, model, metadata, imei, status)
-			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+			INSERT INTO devices (org_id, user_id, device_type, brand, model, metadata, imei, status, market)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
 			RETURNING id, created_at, updated_at
-		`, ac.OrgID, ac.UserID, deviceType, brand, model, mustJSON(metadata), imeiPtr, domain.DeviceStatusPending,
+		`, ac.OrgID, ac.UserID, deviceType, brand, model, mustJSON(metadata), imeiPtr, domain.DeviceStatusPending, market,
 		).Scan(&device.ID, &device.CreatedAt, &device.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert device: %w", err)
@@ -178,6 +186,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		device.Metadata = metadata
 		device.IMEI = imei
 		device.Status = domain.DeviceStatusPending
+		device.Market = market
 
 		// Plans v2: attach verification media if the wizard supplied any.
 		// The admin reviews them via the Verifications tab and either
@@ -206,11 +215,11 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 
 		err = tx.QueryRow(ctx, `
 			INSERT INTO subscriptions (org_id, user_id, device_id, plan_id, status, billing_cycle,
-			       current_period_start, current_period_end)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			       market, current_period_start, current_period_end)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING id, created_at, updated_at
 		`, ac.OrgID, ac.UserID, device.ID, planID, domain.SubscriptionStatusPending, billingCycle,
-			nil, nil,
+			market, nil, nil,
 		).Scan(&sub.ID, &sub.CreatedAt, &sub.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert subscription: %w", err)
@@ -221,18 +230,19 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		sub.PlanID = planID
 		sub.Status = domain.SubscriptionStatusPending
 		sub.BillingCycle = billingCycle
+		sub.Market = market
 		sub.CurrentPeriodStart = nil
 		sub.CurrentPeriodEnd = nil
 
 		payment.SubscriptionID = sub.ID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO payments (
-				id, org_id, user_id, plan_id, subscription_id, amount_minor, currency,
+				id, org_id, user_id, plan_id, subscription_id, amount_minor, market, currency,
 				provider, payment_method, status, provider_ref, idempotency_key
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			RETURNING created_at, updated_at
-		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountMinor, payment.Currency,
+		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountMinor, payment.Market, payment.Currency,
 			payment.Provider, payment.PaymentMethod, payment.Status, payment.ProviderRef, payment.IdempotencyKey,
 		).Scan(&payment.CreatedAt, &payment.UpdatedAt)
 		if err != nil {
@@ -344,7 +354,7 @@ func (s *PaymentService) RenewSubscription(
 		}
 	}
 
-	sub, payment, err := s.createRenewalSubscriptionAndPayment(ctx, ac, device.ID, planID, billingCycle, idempotencyKey, planAmountForBillingCycle(plan, billingCycle))
+	sub, payment, err := s.createRenewalSubscriptionAndPayment(ctx, ac, device.ID, planID, billingCycle, idempotencyKey, planAmountForBillingCycle(plan, billingCycle), plan.Market)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
@@ -988,12 +998,17 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 	billingCycle string,
 	idempotencyKey *string,
 	amount int,
+	market domain.MarketCode,
 ) (*domain.Subscription, *domain.Payment, error) {
+	if market == "" {
+		market = domain.MarketSN
+	}
 	sub := &domain.Subscription{
 		OrgID:              ac.OrgID,
 		UserID:             ac.UserID,
 		DeviceID:           deviceID,
 		PlanID:             planID,
+		Market:             market,
 		Status:             domain.SubscriptionStatusPending,
 		BillingCycle:       billingCycle,
 		CurrentPeriodStart: nil,
@@ -1007,6 +1022,7 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 		OrgID:          ac.OrgID,
 		UserID:         ac.UserID,
 		PlanID:         planID,
+		Market:         market,
 		AmountMinor:      amount,
 		Currency:       dexpayCurrencyXOF,
 		Provider:       dexpayProviderName,
@@ -1029,11 +1045,11 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 	txErr := database.WithTransaction(ctx, s.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			INSERT INTO subscriptions (org_id, user_id, device_id, plan_id, status, billing_cycle,
-			       current_period_start, current_period_end)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			       market, current_period_start, current_period_end)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING id, created_at, updated_at
 		`, sub.OrgID, sub.UserID, sub.DeviceID, sub.PlanID, sub.Status, sub.BillingCycle,
-			sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+			sub.Market, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
 		).Scan(&sub.ID, &sub.CreatedAt, &sub.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert renewal subscription: %w", err)
@@ -1042,12 +1058,12 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 		payment.SubscriptionID = sub.ID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO payments (
-				id, org_id, user_id, plan_id, subscription_id, amount_minor, currency,
+				id, org_id, user_id, plan_id, subscription_id, amount_minor, market, currency,
 				provider, payment_method, status, provider_ref, idempotency_key
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			RETURNING created_at, updated_at
-		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountMinor, payment.Currency,
+		`, payment.ID, payment.OrgID, payment.UserID, payment.PlanID, payment.SubscriptionID, payment.AmountMinor, payment.Market, payment.Currency,
 			payment.Provider, payment.PaymentMethod, payment.Status, payment.ProviderRef, payment.IdempotencyKey,
 		).Scan(&payment.CreatedAt, &payment.UpdatedAt)
 		if err != nil {

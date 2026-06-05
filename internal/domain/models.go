@@ -41,6 +41,11 @@ type Plan struct {
 	NameEN        string    `json:"name_en"`
 	PriceMonthly  int       `json:"price_monthly"`
 	PriceAnnual   int       `json:"price_annual"`
+	// Market the plan belongs to; Currency is derived from it
+	// (CurrencyForMarket) — stored alongside for convenience but never
+	// the source of truth. Prices are in the market's minor units.
+	Market        MarketCode `json:"market"`
+	Currency      Currency   `json:"currency"`
 	Tier          string    `json:"tier"`
 	DeviceRangeFR *string   `json:"device_range_fr,omitempty"`
 	DeviceRangeEN *string   `json:"device_range_en,omitempty"`

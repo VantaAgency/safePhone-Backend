@@ -112,6 +112,9 @@ func (s *ClaimService) Create(ctx context.Context, ac *auth.AuthContext, deviceI
 		ClaimType:      claimType,
 		Description:    desc,
 		Status:         domain.ClaimStatusPending,
+		// A claim inherits its device's market — the device is the source
+		// of truth, never the auth context.
+		Market: device.Market,
 	}
 
 	if err := s.repo.Create(ctx, claim); err != nil {

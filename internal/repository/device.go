@@ -64,11 +64,19 @@ func (r *DeviceRepository) Create(ctx context.Context, d *domain.Device) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// market is denormalised on the row; default to SN when the caller
+	// didn't set it (legacy SN-only callers). The US flow sets d.Market=US.
+	market := d.Market
+	if market == "" {
+		market = domain.MarketSN
+	}
+	d.Market = market
+
 	return r.pool.QueryRow(ctx, `
-		INSERT INTO devices (org_id, user_id, device_type, brand, model, metadata, imei, status)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+		INSERT INTO devices (org_id, user_id, device_type, brand, model, metadata, imei, status, market)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
 		RETURNING id, created_at, updated_at
-	`, d.OrgID, d.UserID, d.DeviceType, d.Brand, d.Model, marshalDeviceMetadata(d.Metadata), nullableIMEI(d.IMEI), d.Status).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
+	`, d.OrgID, d.UserID, d.DeviceType, d.Brand, d.Model, marshalDeviceMetadata(d.Metadata), nullableIMEI(d.IMEI), d.Status, market).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
 // GetByID returns a device by ID (excluding soft-deleted).
@@ -84,9 +92,9 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.D
 	var imei *string
 	var metadata []byte
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, created_at, updated_at, deleted_at
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, market, created_at, updated_at, deleted_at
 		FROM devices WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
+	`, id).Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.Market, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
 
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -105,9 +113,9 @@ func (r *DeviceRepository) GetByIMEI(ctx context.Context, imei string) (*domain.
 	var scannedIMEI *string
 	var metadata []byte
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, created_at, updated_at, deleted_at
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, market, created_at, updated_at, deleted_at
 		FROM devices WHERE imei = $1 AND deleted_at IS NULL
-	`, imei).Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &scannedIMEI, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
+	`, imei).Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &scannedIMEI, &d.Status, &d.Market, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt)
 
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -127,7 +135,7 @@ func (r *DeviceRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 	defer cancel()
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, created_at, updated_at, deleted_at
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, market, created_at, updated_at, deleted_at
 		FROM devices
 		WHERE org_id = $1 AND user_id = $2 AND deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -143,7 +151,7 @@ func (r *DeviceRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 		var d domain.Device
 		var imei *string
 		var metadata []byte
-		if err := rows.Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.Market, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt); err != nil {
 			return nil, err
 		}
 		d.IMEI = scanIMEI(imei)
