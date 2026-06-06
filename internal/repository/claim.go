@@ -79,31 +79,24 @@ func (r *ClaimRepository) ListByOrgAndUser(ctx context.Context, orgID, userID uu
 }
 
 // ListByOrg returns all claims in an org, optionally filtered by status.
-func (r *ClaimRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, status *string, limit, offset int) ([]domain.Claim, error) {
+func (r *ClaimRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, status *string, market string, limit, offset int) ([]domain.Claim, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	var rows pgx.Rows
-	var err error
-
+	statusFilter := ""
 	if status != nil {
-		rows, err = r.pool.Query(ctx, `
-			SELECT `+claimColumns+`
-			FROM claims
-			WHERE org_id = $1 AND status = $2
-			ORDER BY filed_at DESC
-			LIMIT $3 OFFSET $4
-		`, orgID, *status, limit, offset)
-	} else {
-		rows, err = r.pool.Query(ctx, `
-			SELECT `+claimColumns+`
-			FROM claims
-			WHERE org_id = $1
-			ORDER BY filed_at DESC
-			LIMIT $2 OFFSET $3
-		`, orgID, limit, offset)
+		statusFilter = *status
 	}
 
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+claimColumns+`
+		FROM claims
+		WHERE org_id = $1
+		  AND ($2 = '' OR status = $2)
+		  AND ($3 = '' OR market = $3)
+		ORDER BY filed_at DESC
+		LIMIT $4 OFFSET $5
+	`, orgID, statusFilter, market, limit, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -118,8 +118,8 @@ func (s *RepairService) ListMine(ctx context.Context, ac *auth.AuthContext, limi
 }
 
 // AdminList returns org repair requests for admin users.
-func (s *RepairService) AdminList(ctx context.Context, ac *auth.AuthContext, status *string, search string, limit, offset int) ([]domain.RepairBooking, *domain.AppError) {
-	bookings, err := s.repo.ListByOrg(ctx, ac.OrgID, status, search, limit, offset)
+func (s *RepairService) AdminList(ctx context.Context, ac *auth.AuthContext, status *string, search, market string, limit, offset int) ([]domain.RepairBooking, *domain.AppError) {
+	bookings, err := s.repo.ListByOrg(ctx, ac.OrgID, status, search, market, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}

@@ -143,7 +143,7 @@ func (r *RepairRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 }
 
 // ListByOrg returns repair requests in an org with optional status and search filters.
-func (r *RepairRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, status *string, search string, limit, offset int) ([]domain.RepairBooking, error) {
+func (r *RepairRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, status *string, search, market string, limit, offset int) ([]domain.RepairBooking, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -166,9 +166,10 @@ func (r *RepairRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, statu
 			OR lower(device_model) LIKE '%' || lower($3) || '%'
 			OR lower(repair_type) LIKE '%' || lower($3) || '%'
 		  )
+		  AND ($4 = '' OR market = $4)
 		ORDER BY created_at DESC
-		LIMIT $4 OFFSET $5
-	`, orgID, statusFilter, strings.TrimSpace(search), limit, offset)
+		LIMIT $5 OFFSET $6
+	`, orgID, statusFilter, strings.TrimSpace(search), market, limit, offset)
 	if err != nil {
 		return nil, err
 	}

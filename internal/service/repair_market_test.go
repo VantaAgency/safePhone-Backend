@@ -29,7 +29,7 @@ func (r *captureRepairRepo) GetByReferenceAndPhone(_ context.Context, _, _ strin
 func (r *captureRepairRepo) ListByOrgAndUser(_ context.Context, _, _ uuid.UUID, _, _ int) ([]domain.RepairBooking, error) {
 	return nil, nil
 }
-func (r *captureRepairRepo) ListByOrg(_ context.Context, _ uuid.UUID, _ *string, _ string, _, _ int) ([]domain.RepairBooking, error) {
+func (r *captureRepairRepo) ListByOrg(_ context.Context, _ uuid.UUID, _ *string, _, _ string, _, _ int) ([]domain.RepairBooking, error) {
 	return nil, nil
 }
 func (r *captureRepairRepo) Update(_ context.Context, _ *domain.RepairBooking) error { return nil }

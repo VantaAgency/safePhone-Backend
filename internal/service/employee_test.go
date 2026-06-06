@@ -147,7 +147,7 @@ func (s *stubEmployeeClaimRepository) ListByOrgAndUser(context.Context, uuid.UUI
 	panic("unexpected call to ListByOrgAndUser")
 }
 
-func (s *stubEmployeeClaimRepository) ListByOrg(context.Context, uuid.UUID, *string, int, int) ([]domain.Claim, error) {
+func (s *stubEmployeeClaimRepository) ListByOrg(context.Context, uuid.UUID, *string, string, int, int) ([]domain.Claim, error) {
 	panic("unexpected call to ListByOrg")
 }
 

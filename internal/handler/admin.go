@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -81,7 +82,13 @@ func (h *AdminHandler) ListPayments(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
-	payments, appErr := h.svc.ListPayments(r.Context(), ac, limit, offset)
+	market, appErr := parseMarketQuery(r.URL.Query().Get("market"))
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	payments, appErr := h.svc.ListPayments(r.Context(), ac, market, limit, offset)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
@@ -181,6 +188,23 @@ func (h *AdminHandler) UpdateEmployeeStatus(w http.ResponseWriter, r *http.Reque
 	}
 
 	WriteSuccess(w, r, http.StatusOK, item)
+}
+
+// parseMarketQuery validates an optional ?market= filter on admin list
+// endpoints. Empty or "all" means no filter; otherwise the value must be a
+// known market (SN/US). Returns "" for "no filter" so it can be passed
+// straight to the repositories, where ($n = '' OR market = $n) matches all
+// rows when the value is empty.
+func parseMarketQuery(raw string) (string, *domain.AppError) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "all") {
+		return "", nil
+	}
+	market := strings.ToUpper(raw)
+	if !domain.IsValidMarket(market) {
+		return "", domain.BadRequest("invalid market filter")
+	}
+	return market, nil
 }
 
 func parseEmployeeAccountStatusQuery(raw string) (*domain.EmployeeAccountStatus, *domain.AppError) {

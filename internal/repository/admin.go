@@ -277,7 +277,7 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 }
 
 // ListPayments returns all payments in the org with enriched customer and plan info.
-func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]domain.AdminPayment, error) {
+func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, market string, limit, offset int) ([]domain.AdminPayment, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -302,9 +302,10 @@ func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, lim
 		JOIN users u ON u.id = pay.user_id
 		JOIN plans pl ON pl.id = pay.plan_id
 		WHERE pay.org_id = $1
+		  AND ($2 = '' OR pay.market = $2)
 		ORDER BY pay.created_at DESC
-		LIMIT $2 OFFSET $3
-	`, orgID, limit, offset)
+		LIMIT $3 OFFSET $4
+	`, orgID, market, limit, offset)
 	if err != nil {
 		return nil, err
 	}
