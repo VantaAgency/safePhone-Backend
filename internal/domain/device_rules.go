@@ -65,6 +65,18 @@ func (d Device) RequiresIMEI() bool {
 	return d.DeviceType == DeviceTypeSmartphone
 }
 
+// RequiredVerificationPhotos is how many verification photos a device type
+// needs: smartphones/tablets show a front + back pair; TVs, computers and
+// consoles just need one photo of the device powered on.
+func RequiredVerificationPhotos(deviceType DeviceType) int {
+	switch NormalizeDeviceType(string(deviceType)) {
+	case DeviceTypeSmartphone, DeviceTypeTablet:
+		return 2
+	default:
+		return 1
+	}
+}
+
 // IsTotalPlan reports whether the plan unlocks multi-device coverage.
 func IsTotalPlan(plan *Plan) bool {
 	return plan != nil && strings.EqualFold(strings.TrimSpace(plan.Slug), TotalPlanSlug)

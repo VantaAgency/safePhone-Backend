@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net/url"
 
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
@@ -12,10 +13,11 @@ import (
 // skips the handler-side validation (CLI tool, future API, internal
 // scheduler, etc.) we still refuse non-http(s) values that would render
 // as <a href> in the admin tab.
-func validateVerificationMedia(photos []string, video string) *domain.AppError {
-	if len(photos) > 0 && len(photos) < 2 {
-		return domain.ValidationFailed("verification requires 2 photos", map[string]string{
-			"photos": "at least 2 photo URLs are required (front and back)",
+func validateVerificationMedia(deviceType domain.DeviceType, photos []string, video string) *domain.AppError {
+	required := domain.RequiredVerificationPhotos(deviceType)
+	if len(photos) > 0 && len(photos) < required {
+		return domain.ValidationFailed("verification photo count is insufficient", map[string]string{
+			"photos": fmt.Sprintf("%d photo URL(s) are required for this device type", required),
 		})
 	}
 	for _, p := range photos {

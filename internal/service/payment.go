@@ -109,7 +109,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		}
 	}
 
-	if appErr := validateVerificationMedia(verificationPhotos, verificationVideo); appErr != nil {
+	if appErr := validateVerificationMedia(deviceType, verificationPhotos, verificationVideo); appErr != nil {
 		return nil, appErr
 	}
 

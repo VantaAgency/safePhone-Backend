@@ -234,7 +234,7 @@ func (s *StripeService) RegisterDevice(
 	// the 2-photo + 1-video minimum upstream; we re-check here as defense
 	// in depth so a future internal caller can't bypass the gate.
 	if len(p.Photos) > 0 || p.Video != "" {
-		if appErr := validateVerificationMedia(p.Photos, p.Video); appErr != nil {
+		if appErr := validateVerificationMedia(deviceType, p.Photos, p.Video); appErr != nil {
 			return nil, appErr
 		}
 		if err := s.devices.SetVerificationMedia(ctx, device.ID, p.Photos, p.Video); err != nil {
