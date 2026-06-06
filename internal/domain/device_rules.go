@@ -96,7 +96,9 @@ func ValidateDeviceInput(plan *Plan, deviceType DeviceType, brand, model, imei s
 	normalizedIMEI := strings.TrimSpace(imei)
 	normalizedMetadata := metadata.Normalize()
 
-	if normalizedBrand == "" {
+	// Brand is only required for smartphones. Other device types use a single
+	// combined "brand + model" name captured in the model field.
+	if normalizedType == DeviceTypeSmartphone && normalizedBrand == "" {
 		fields["brand"] = "brand is required"
 	}
 	if normalizedModel == "" {
