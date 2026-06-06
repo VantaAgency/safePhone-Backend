@@ -196,7 +196,7 @@ func main() {
 	adminSvc := service.NewAdminService(adminRepo)
 	dashboardSvc := service.NewDashboardService(dashboardRepo, adminRepo, partnerRepo, cfg.FrontendURL)
 	planSvc := service.NewPlanService(planRepo, cfg.IsDevelopment())
-	deviceSvc := service.NewDeviceService(deviceRepo, subRepo)
+	deviceSvc := service.NewDeviceService(deviceRepo, subRepo, planRepo, subDevicesRepo)
 	subSvc := service.NewSubscriptionService(subRepo, planRepo, cfg.IsDevelopment())
 	claimSvc := service.NewClaimService(claimRepo, deviceRepo, subRepo, planRepo)
 	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, commercialRepo, webhookEventRepo, dexpayClient, pool, cfg.FrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
@@ -292,6 +292,8 @@ func main() {
 			r.Get("/subscriptions", subH.List)
 			r.Get("/subscriptions/{id}", subH.Get)
 			r.Post("/subscriptions/{id}/cancel", subH.Cancel)
+			r.Get("/subscriptions/{id}/devices", deviceH.ListSubscriptionDevices)
+			r.Post("/subscriptions/{id}/devices", deviceH.AddToSubscription)
 
 			// Claims
 			r.Post("/claims", claimH.Create)

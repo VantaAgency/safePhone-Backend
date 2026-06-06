@@ -30,6 +30,7 @@ type DeviceRepository interface {
 	ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]Device, error)
 	Update(ctx context.Context, device *Device) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
+	SetVerificationMedia(ctx context.Context, deviceID uuid.UUID, photoURLs []string, videoURL string) error
 }
 
 // SubscriptionRepository defines data access for subscriptions.
@@ -40,6 +41,14 @@ type SubscriptionRepository interface {
 	ListByDeviceID(ctx context.Context, deviceID uuid.UUID, limit int) ([]Subscription, error)
 	ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID, limit, offset int) ([]Subscription, error)
 	Update(ctx context.Context, sub *Subscription) error
+}
+
+// SubscriptionDevicesRepository links devices to a subscription (many-to-many),
+// used to enforce per-type device caps and to list a subscription's devices.
+type SubscriptionDevicesRepository interface {
+	Attach(ctx context.Context, subscriptionID, deviceID uuid.UUID) error
+	CountByType(ctx context.Context, subscriptionID uuid.UUID) (map[DeviceType]int, error)
+	ListBySubscription(ctx context.Context, subscriptionID uuid.UUID) ([]Device, error)
 }
 
 // ClaimRepository defines data access for insurance claims.

@@ -11,13 +11,20 @@ import (
 
 // DeviceService handles device business logic.
 type DeviceService struct {
-	repo    domain.DeviceRepository
-	subRepo domain.SubscriptionRepository
+	repo       domain.DeviceRepository
+	subRepo    domain.SubscriptionRepository
+	planRepo   domain.PlanRepository
+	subDevices domain.SubscriptionDevicesRepository
 }
 
 // NewDeviceService creates a new device service.
-func NewDeviceService(repo domain.DeviceRepository, subRepo domain.SubscriptionRepository) *DeviceService {
-	return &DeviceService{repo: repo, subRepo: subRepo}
+func NewDeviceService(
+	repo domain.DeviceRepository,
+	subRepo domain.SubscriptionRepository,
+	planRepo domain.PlanRepository,
+	subDevices domain.SubscriptionDevicesRepository,
+) *DeviceService {
+	return &DeviceService{repo: repo, subRepo: subRepo, planRepo: planRepo, subDevices: subDevices}
 }
 
 // Create registers a new device for the authenticated user.
@@ -56,6 +63,118 @@ func (s *DeviceService) Create(ctx context.Context, ac *auth.AuthContext, device
 	}
 
 	return device, nil
+}
+
+// AddToSubscription registers a device and attaches it to an existing
+// subscription, enforcing the plan's coverage + per-type cap. No payment is
+// taken — the subscription already covers up to its caps. The device starts
+// pending and activates after admin verification.
+func (s *DeviceService) AddToSubscription(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	subscriptionID uuid.UUID,
+	deviceType domain.DeviceType,
+	brand, model, imei string,
+	metadata domain.DeviceMetadata,
+	verificationPhotos []string,
+	verificationVideo string,
+) (*domain.Device, *domain.AppError) {
+	sub, err := s.subRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if sub == nil {
+		return nil, domain.NotFound("subscription")
+	}
+	if appErr := ac.EnsureOwnership(sub.OrgID, sub.UserID, "subscription"); appErr != nil {
+		return nil, appErr
+	}
+	if sub.Status == domain.SubscriptionStatusCancelled || sub.Status == domain.SubscriptionStatusExpired {
+		return nil, domain.BadRequest("subscription is not active")
+	}
+
+	plan, err := s.planRepo.GetByID(ctx, sub.PlanID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+
+	deviceType = domain.NormalizeDeviceType(string(deviceType))
+	metadata = metadata.Normalize()
+	if fields := domain.ValidateDeviceInput(plan, deviceType, brand, model, imei, metadata); len(fields) > 0 {
+		return nil, domain.ValidationFailed("validation failed", fields)
+	}
+	if appErr := validateVerificationMedia(deviceType, verificationPhotos, verificationVideo); appErr != nil {
+		return nil, appErr
+	}
+
+	// Enforce the plan's per-type cap for this subscription.
+	if plan != nil {
+		counts, err := s.subDevices.CountByType(ctx, subscriptionID)
+		if err != nil {
+			return nil, domain.InternalError(err)
+		}
+		if counts[deviceType] >= plan.MaxForDeviceType(deviceType) {
+			return nil, domain.BadRequest("device limit reached for this device type on this plan")
+		}
+	}
+
+	if imei != "" {
+		existing, err := s.repo.GetByIMEI(ctx, imei)
+		if err != nil {
+			return nil, domain.InternalError(err)
+		}
+		if existing != nil {
+			return nil, domain.Conflict("a device with this IMEI is already registered")
+		}
+	}
+
+	device := &domain.Device{
+		OrgID:      ac.OrgID,
+		UserID:     ac.UserID,
+		DeviceType: deviceType,
+		Brand:      brand,
+		Model:      model,
+		Metadata:   metadata,
+		IMEI:       imei,
+		Status:     domain.DeviceStatusPending,
+	}
+	if err := s.repo.Create(ctx, device); err != nil {
+		return nil, domain.InternalError(err)
+	}
+
+	if len(verificationPhotos) > 0 || verificationVideo != "" {
+		if err := s.repo.SetVerificationMedia(ctx, device.ID, verificationPhotos, verificationVideo); err != nil {
+			return nil, domain.InternalError(err)
+		}
+		device.VerificationPhotos = verificationPhotos
+		device.VerificationStatus = domain.DeviceVerificationStatusPending
+	}
+
+	if err := s.subDevices.Attach(ctx, subscriptionID, device.ID); err != nil {
+		return nil, domain.InternalError(err)
+	}
+
+	return device, nil
+}
+
+// ListSubscriptionDevices returns the devices attached to a subscription
+// (verifying ownership) so the UI can compute remaining slots per type.
+func (s *DeviceService) ListSubscriptionDevices(ctx context.Context, ac *auth.AuthContext, subscriptionID uuid.UUID) ([]domain.Device, *domain.AppError) {
+	sub, err := s.subRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	if sub == nil {
+		return nil, domain.NotFound("subscription")
+	}
+	if appErr := ac.EnsureOwnership(sub.OrgID, sub.UserID, "subscription"); appErr != nil {
+		return nil, appErr
+	}
+	devices, err := s.subDevices.ListBySubscription(ctx, subscriptionID)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	return devices, nil
 }
 
 // List returns devices for the authenticated user.

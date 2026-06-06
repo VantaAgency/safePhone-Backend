@@ -495,6 +495,9 @@ func (s *stubRenewalDeviceRepository) GetByID(_ context.Context, id uuid.UUID) (
 func (s *stubRenewalDeviceRepository) GetByIMEI(_ context.Context, _ string) (*domain.Device, error) {
 	return nil, nil
 }
+func (s *stubRenewalDeviceRepository) SetVerificationMedia(_ context.Context, _ uuid.UUID, _ []string, _ string) error {
+	return nil
+}
 func (s *stubRenewalDeviceRepository) ListByOrgAndUser(_ context.Context, orgID, userID uuid.UUID, _, _ int) ([]domain.Device, error) {
 	var devices []domain.Device
 	for _, device := range s.devices {

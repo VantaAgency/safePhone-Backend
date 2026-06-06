@@ -48,6 +48,18 @@ type UpdateDeviceRequest struct {
 	IMEI       string                 `json:"imei" validate:"omitempty,len=15,numeric"`
 }
 
+// AddSubscriptionDeviceRequest adds a device to an existing subscription.
+// Brand is optional (non-phones use a single combined name in model).
+type AddSubscriptionDeviceRequest struct {
+	DeviceType         string                `json:"device_type" validate:"omitempty,oneof=smartphone tablet tv computer game_console home_electronics"`
+	Brand              string                `json:"brand" validate:"omitempty,max=100"`
+	Model              string                `json:"model" validate:"required,min=1,max=200"`
+	Metadata           DeviceMetadataPayload `json:"metadata"`
+	IMEI               string                `json:"imei" validate:"omitempty,len=15,numeric"`
+	VerificationPhotos []string              `json:"verification_photos"`
+	VerificationVideo  string                `json:"verification_video"`
+}
+
 // DeviceHandler handles device-related HTTP requests.
 type DeviceHandler struct {
 	svc      *service.DeviceService
@@ -95,6 +107,62 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteSuccess(w, r, http.StatusCreated, device)
+}
+
+// AddToSubscription adds a device to an existing subscription (free, up to the
+// plan's per-type caps). POST /api/v1/subscriptions/{id}/devices.
+func (h *DeviceHandler) AddToSubscription(w http.ResponseWriter, r *http.Request) {
+	subID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		WriteError(w, r, domain.BadRequest("invalid subscription ID"))
+		return
+	}
+	var req AddSubscriptionDeviceRequest
+	if err := DecodeJSON(r, &req); err != nil {
+		WriteError(w, r, domain.BadRequest("invalid request body"))
+		return
+	}
+	if err := h.validate.Struct(req); err != nil {
+		WriteError(w, r, domain.ValidationFailed("validation failed", nil))
+		return
+	}
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+	device, appErr := h.svc.AddToSubscription(
+		r.Context(), ac, subID,
+		domain.NormalizeDeviceType(req.DeviceType),
+		req.Brand, req.Model, req.IMEI, req.Metadata.ToDomain(),
+		req.VerificationPhotos, req.VerificationVideo,
+	)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+	WriteSuccess(w, r, http.StatusCreated, device)
+}
+
+// ListSubscriptionDevices lists devices attached to a subscription, so the UI
+// can show remaining slots. GET /api/v1/subscriptions/{id}/devices.
+func (h *DeviceHandler) ListSubscriptionDevices(w http.ResponseWriter, r *http.Request) {
+	subID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		WriteError(w, r, domain.BadRequest("invalid subscription ID"))
+		return
+	}
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+	devices, appErr := h.svc.ListSubscriptionDevices(r.Context(), ac, subID)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+	WriteSuccess(w, r, http.StatusOK, devices)
 }
 
 // List returns the authenticated user's devices.
