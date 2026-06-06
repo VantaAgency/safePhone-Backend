@@ -211,6 +211,26 @@ func (s *StripeService) RegisterDevice(
 	}
 
 	deviceType := domain.NormalizeDeviceType(p.DeviceType)
+
+	// Enforce the subscription plan's device coverage + per-type cap before
+	// attaching. The plan covers a fixed number of each device type.
+	plan, err := s.plans.GetByID(ctx, subscription.PlanID)
+	if err != nil {
+		return nil, domain.Internal("failed to load plan")
+	}
+	if plan != nil {
+		if !domain.PlanAllowsDeviceType(plan, deviceType) {
+			return nil, domain.BadRequest("this plan does not cover this device type")
+		}
+		counts, err := s.subDevices.CountByType(ctx, subscription.ID)
+		if err != nil {
+			return nil, domain.Internal("failed to count attached devices")
+		}
+		if counts[deviceType] >= plan.MaxForDeviceType(deviceType) {
+			return nil, domain.BadRequest("device limit reached for this device type on this plan")
+		}
+	}
+
 	device := &domain.Device{
 		OrgID:      user.OrgID,
 		UserID:     user.ID,

@@ -39,3 +39,54 @@ func TestIsValidIMEI(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanDeviceCoverageAndCaps(t *testing.T) {
+	// "Plus"-like plan: 2 smartphones, 1 tablet, 1 console; no computer/TV.
+	plan := &Plan{MaxSmartphones: 2, MaxTablets: 1, MaxGameConsoles: 1}
+	cases := []struct {
+		t       DeviceType
+		allowed bool
+		max     int
+	}{
+		{DeviceTypeSmartphone, true, 2},
+		{DeviceTypeTablet, true, 1},
+		{DeviceTypeGameConsole, true, 1},
+		{DeviceTypeComputer, false, 0},
+		{DeviceTypeTV, false, 0},
+	}
+	for _, c := range cases {
+		if got := PlanAllowsDeviceType(plan, c.t); got != c.allowed {
+			t.Errorf("PlanAllowsDeviceType(%s) = %v, want %v", c.t, got, c.allowed)
+		}
+		if got := plan.MaxForDeviceType(c.t); got != c.max {
+			t.Errorf("MaxForDeviceType(%s) = %d, want %d", c.t, got, c.max)
+		}
+	}
+}
+
+func TestRequiredVerificationPhotos(t *testing.T) {
+	cases := map[DeviceType]int{
+		DeviceTypeSmartphone:  2,
+		DeviceTypeTablet:      2,
+		DeviceTypeTV:          1,
+		DeviceTypeComputer:    1,
+		DeviceTypeGameConsole: 1,
+	}
+	for dt, want := range cases {
+		if got := RequiredVerificationPhotos(dt); got != want {
+			t.Errorf("RequiredVerificationPhotos(%s) = %d, want %d", dt, got, want)
+		}
+	}
+}
+
+func TestValidateDeviceInputBrandOptionalForNonPhones(t *testing.T) {
+	if f := ValidateDeviceInput(nil, DeviceTypeGameConsole, "", "PlayStation 5", "", DeviceMetadata{}); len(f) != 0 {
+		t.Errorf("console with a model and no brand should be valid, got %v", f)
+	}
+	if f := ValidateDeviceInput(nil, DeviceTypeGameConsole, "", "", "", DeviceMetadata{}); f["model"] == "" {
+		t.Errorf("console without a model should fail on model, got %v", f)
+	}
+	if f := ValidateDeviceInput(nil, DeviceTypeSmartphone, "", "iPhone 15", "", DeviceMetadata{}); f["brand"] == "" {
+		t.Errorf("smartphone without a brand should still fail on brand, got %v", f)
+	}
+}
