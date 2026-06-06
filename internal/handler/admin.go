@@ -62,7 +62,13 @@ func (h *AdminHandler) ListCustomers(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
-	customers, appErr := h.svc.ListCustomers(r.Context(), ac, search, limit, offset)
+	market, appErr := parseMarketQuery(r.URL.Query().Get("market"))
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	customers, appErr := h.svc.ListCustomers(r.Context(), ac, search, market, limit, offset)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

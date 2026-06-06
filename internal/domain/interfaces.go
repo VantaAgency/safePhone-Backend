@@ -69,7 +69,7 @@ type PartnerApplicationRepository interface {
 // AdminRepository provides aggregate queries for the admin dashboard.
 type AdminRepository interface {
 	GetStats(ctx context.Context, orgID uuid.UUID) (*AdminStats, error)
-	ListCustomers(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]AdminCustomer, error)
+	ListCustomers(ctx context.Context, orgID uuid.UUID, search, market string, limit, offset int) ([]AdminCustomer, error)
 	ListPayments(ctx context.Context, orgID uuid.UUID, market string, limit, offset int) ([]AdminPayment, error)
 	ListEmployees(ctx context.Context, orgID uuid.UUID, search string, status *EmployeeAccountStatus, sort string, limit, offset int) ([]AdminEmployeeListItem, error)
 	GetEmployee(ctx context.Context, orgID, userID uuid.UUID) (*AdminEmployeeDetail, error)

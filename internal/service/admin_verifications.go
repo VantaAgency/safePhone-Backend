@@ -39,12 +39,13 @@ func NewVerificationService(
 func (s *VerificationService) List(
 	ctx context.Context,
 	ac *auth.AuthContext,
+	market string,
 	limit, offset int,
 ) ([]domain.Device, *domain.AppError) {
 	if !ac.HasRole(auth.RoleAdmin) {
 		return nil, domain.Forbidden("admin role required")
 	}
-	devices, err := s.devices.ListPendingVerifications(ctx, ac.OrgID, limit, offset)
+	devices, err := s.devices.ListPendingVerifications(ctx, ac.OrgID, market, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}

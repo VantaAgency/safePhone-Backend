@@ -34,7 +34,13 @@ func (h *AdminVerificationsHandler) List(w http.ResponseWriter, r *http.Request)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
-	devices, appErr := h.svc.List(r.Context(), ac, limit, offset)
+	market, appErr := parseMarketQuery(r.URL.Query().Get("market"))
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	devices, appErr := h.svc.List(r.Context(), ac, market, limit, offset)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

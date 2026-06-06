@@ -304,6 +304,7 @@ func (r *DeviceRepository) LoadVerification(
 func (r *DeviceRepository) ListPendingVerifications(
 	ctx context.Context,
 	orgID uuid.UUID,
+	market string,
 	limit, offset int,
 ) ([]domain.Device, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -322,9 +323,10 @@ func (r *DeviceRepository) ListPendingVerifications(
 		WHERE org_id = $1
 		  AND verification_status = 'pending'
 		  AND deleted_at IS NULL
+		  AND ($2 = '' OR market = $2)
 		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`, orgID, limit, offset)
+		LIMIT $3 OFFSET $4
+	`, orgID, market, limit, offset)
 	if err != nil {
 		return nil, err
 	}
