@@ -15,12 +15,15 @@ import (
 // AdminVerificationsHandler exposes the admin endpoints powering the
 // /admin → Verifications tab.
 type AdminVerificationsHandler struct {
-	svc *service.VerificationService
+	svc         *service.VerificationService
+	mediaSecret []byte
 }
 
-// NewAdminVerificationsHandler wires the handler.
-func NewAdminVerificationsHandler(svc *service.VerificationService) *AdminVerificationsHandler {
-	return &AdminVerificationsHandler{svc: svc}
+// NewAdminVerificationsHandler wires the handler. mediaSecret signs the
+// verification-media URLs returned to the moderation UI so the browser can
+// stream them directly.
+func NewAdminVerificationsHandler(svc *service.VerificationService, mediaSecret []byte) *AdminVerificationsHandler {
+	return &AdminVerificationsHandler{svc: svc, mediaSecret: mediaSecret}
 }
 
 // List returns the queue of devices awaiting verification review.
@@ -104,6 +107,17 @@ func (h *AdminVerificationsHandler) ListModeration(w http.ResponseWriter, r *htt
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
+	}
+	// Replace the stored media URLs with short-lived signed paths so the
+	// moderation UI can load/stream them without a bearer token.
+	for i := range devices {
+		for j, p := range devices[i].VerificationPhotos {
+			devices[i].VerificationPhotos[j] = SignStoredMediaURL(h.mediaSecret, p)
+		}
+		if devices[i].VerificationVideo != nil && *devices[i].VerificationVideo != "" {
+			signed := SignStoredMediaURL(h.mediaSecret, *devices[i].VerificationVideo)
+			devices[i].VerificationVideo = &signed
+		}
 	}
 	WriteSuccess(w, r, http.StatusOK, devices)
 }

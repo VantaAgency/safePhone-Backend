@@ -20,13 +20,13 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/config"
 	"github.com/cherif-safephone/safephone-backend/internal/database"
 	"github.com/cherif-safephone/safephone-backend/internal/dexpay"
-	stripepkg "github.com/cherif-safephone/safephone-backend/internal/stripe"
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 	"github.com/cherif-safephone/safephone-backend/internal/handler"
 	mw "github.com/cherif-safephone/safephone-backend/internal/middleware"
 	"github.com/cherif-safephone/safephone-backend/internal/repository"
 	"github.com/cherif-safephone/safephone-backend/internal/service"
 	"github.com/cherif-safephone/safephone-backend/internal/storage"
+	stripepkg "github.com/cherif-safephone/safephone-backend/internal/stripe"
 )
 
 func main() {
@@ -212,8 +212,11 @@ func main() {
 	userH := handler.NewUserHandler(userSvc)
 	adminH := handler.NewAdminHandler(adminSvc)
 	verificationSvc := service.NewVerificationService(deviceRepo, subRepo)
-	adminVerificationsH := handler.NewAdminVerificationsHandler(verificationSvc)
-	verificationMediaH := handler.NewVerificationMediaHandler(verificationMediaStore, cfg.BackendPublicURL)
+	// Signs short-lived verification-media URLs. Prefer a dedicated secret;
+	// fall back to another server secret so signing always has a key.
+	mediaSecret := []byte(firstNonEmpty(cfg.MediaURLSecret, cfg.DexpayAPISecret, cfg.StripeSecretKey, cfg.DatabaseURL))
+	adminVerificationsH := handler.NewAdminVerificationsHandler(verificationSvc, mediaSecret)
+	verificationMediaH := handler.NewVerificationMediaHandler(verificationMediaStore, cfg.BackendPublicURL, mediaSecret)
 	employeeH := handler.NewEmployeeHandler(employeeSvc)
 	dashboardH := handler.NewDashboardHandler(dashboardSvc)
 	planH := handler.NewPlanHandler(planSvc)
@@ -267,6 +270,11 @@ func main() {
 		r.Post("/webhooks/dexpay", webhookH.HandleDexpay)
 		r.Post("/webhooks/stripe", stripeH.HandleWebhook)
 
+		// Verification media reads — public, authorized by a short-lived HMAC
+		// signature in the query string so a browser <img>/<video> can load
+		// and stream them directly (no bearer token).
+		r.Get("/devices/verification-media/{userID}/{filename}", verificationMediaH.ServeSigned)
+
 		// Authenticated routes
 		r.Group(func(r chi.Router) {
 			r.Use(jwtVerifier.Authenticate)
@@ -284,9 +292,9 @@ func main() {
 			r.Put("/devices/{id}", deviceH.Update)
 			r.Delete("/devices/{id}", deviceH.Delete)
 
-			// Plans v2: verification media upload + proxy
+			// Plans v2: verification media upload (authenticated). Reads are
+			// public via signed URLs — see ServeSigned in the public block.
 			r.Post("/devices/verification-media", verificationMediaH.Upload)
-			r.Get("/devices/verification-media/{userID}/{filename}", verificationMediaH.Serve)
 
 			// Subscriptions (creation is handled atomically via POST /payments)
 			r.Get("/subscriptions", subH.List)
@@ -449,4 +457,13 @@ func main() {
 	}
 
 	slog.Info("server stopped gracefully")
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

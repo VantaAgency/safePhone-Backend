@@ -1,11 +1,17 @@
 package handler
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,6 +19,31 @@ import (
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
 	"github.com/cherif-safephone/safephone-backend/internal/storage"
 )
+
+// signedMediaTTL bounds how long a signed verification-media link stays valid.
+const signedMediaTTL = 30 * time.Minute
+
+func mediaSignature(secret []byte, objectPath string, exp int64) string {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(objectPath + ":" + strconv.FormatInt(exp, 10)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// SignStoredMediaURL turns a stored verification-media URL into a same-origin
+// signed PATH (relative) that a browser <img>/<video> can load directly — no
+// bearer token, so video streams progressively. Returns the input unchanged if
+// it isn't a recognizable verification-media URL.
+func SignStoredMediaURL(secret []byte, storedURL string) string {
+	const prefix = "/api/v1/devices/verification-media/"
+	u, err := url.Parse(storedURL)
+	if err != nil || !strings.HasPrefix(u.Path, prefix) {
+		return storedURL
+	}
+	objectPath := strings.TrimPrefix(u.Path, prefix) // userID/filename
+	exp := time.Now().Add(signedMediaTTL).Unix()
+	sig := mediaSignature(secret, objectPath, exp)
+	return u.Path + "?exp=" + strconv.FormatInt(exp, 10) + "&sig=" + sig
+}
 
 // Plans v2 verification media upload. The frontend posts a multipart
 // form with a single "file" field; we validate type+size, persist to
@@ -43,14 +74,16 @@ var allowedVideoTypes = map[string]string{
 }
 
 type VerificationMediaHandler struct {
-	store     storage.VerificationMediaStore
-	publicURL string
+	store      storage.VerificationMediaStore
+	publicURL  string
+	signSecret []byte
 }
 
-func NewVerificationMediaHandler(store storage.VerificationMediaStore, publicURL string) *VerificationMediaHandler {
+func NewVerificationMediaHandler(store storage.VerificationMediaStore, publicURL string, signSecret []byte) *VerificationMediaHandler {
 	return &VerificationMediaHandler{
-		store:     store,
-		publicURL: strings.TrimRight(publicURL, "/"),
+		store:      store,
+		publicURL:  strings.TrimRight(publicURL, "/"),
+		signSecret: signSecret,
 	}
 }
 
@@ -147,32 +180,31 @@ func (h *VerificationMediaHandler) Upload(w http.ResponseWriter, r *http.Request
 	WriteSuccess(w, r, http.StatusCreated, verificationMediaUploadResponse{URL: url})
 }
 
-func (h *VerificationMediaHandler) Serve(w http.ResponseWriter, r *http.Request) {
-	ac, err := auth.GetAuthContext(r.Context())
-	if err != nil {
-		WriteError(w, r, domain.Unauthorized("authentication required"))
-		return
-	}
-
+// ServeSigned streams verification media for a valid short-lived signed URL.
+// Public (no bearer) so a browser <img>/<video> can load it directly — the
+// signature, which only the backend can produce, is the authorization.
+func (h *VerificationMediaHandler) ServeSigned(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	filename := chi.URLParam(r, "filename")
-	if userID == "" || filename == "" {
-		WriteError(w, r, domain.NotFound("verification media not found"))
-		return
-	}
-	// Reject path traversal.
-	if strings.Contains(filename, "/") || strings.Contains(filename, "..") {
+	if userID == "" || filename == "" ||
+		strings.Contains(filename, "/") || strings.Contains(filename, "..") {
 		WriteError(w, r, domain.NotFound("verification media not found"))
 		return
 	}
 
-	// Authorization: uploader OR admin/employee (the moderation reviewers).
-	if userID != ac.UserID.String() && !ac.HasRole(auth.RoleAdmin) && !ac.HasRole(auth.RoleEmployee) {
-		WriteError(w, r, domain.Forbidden("not allowed"))
+	exp, err := strconv.ParseInt(r.URL.Query().Get("exp"), 10, 64)
+	if err != nil || exp < time.Now().Unix() {
+		WriteError(w, r, domain.Forbidden("media link expired"))
+		return
+	}
+	objectPath := userID + "/" + filename
+	expected := mediaSignature(h.signSecret, objectPath, exp)
+	if !hmac.Equal([]byte(expected), []byte(r.URL.Query().Get("sig"))) {
+		WriteError(w, r, domain.Forbidden("invalid media link"))
 		return
 	}
 
-	rc, ct, err := h.store.Open(r.Context(), userID+"/"+filename)
+	rc, ct, err := h.store.Open(r.Context(), objectPath)
 	if err != nil {
 		slog.Warn("verification media: open failed", "error", err, "user_id", userID, "filename", filename)
 		WriteError(w, r, domain.NotFound("verification media not found"))
@@ -181,29 +213,32 @@ func (h *VerificationMediaHandler) Serve(w http.ResponseWriter, r *http.Request)
 	defer rc.Close()
 
 	if ct == "" {
-		// Best-effort fallback from the extension when storage didn't preserve it.
-		switch strings.ToLower(filepath.Ext(filename)) {
-		case ".jpg", ".jpeg":
-			ct = "image/jpeg"
-		case ".png":
-			ct = "image/png"
-		case ".webp":
-			ct = "image/webp"
-		case ".heic":
-			ct = "image/heic"
-		case ".mp4":
-			ct = "video/mp4"
-		case ".mov":
-			ct = "video/quicktime"
-		case ".webm":
-			ct = "video/webm"
-		default:
-			ct = "application/octet-stream"
-		}
+		ct = contentTypeFromExt(filename)
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	if _, err := io.Copy(w, rc); err != nil {
 		return
+	}
+}
+
+func contentTypeFromExt(filename string) string {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".heic":
+		return "image/heic"
+	case ".mp4":
+		return "video/mp4"
+	case ".mov":
+		return "video/quicktime"
+	case ".webm":
+		return "video/webm"
+	default:
+		return "application/octet-stream"
 	}
 }

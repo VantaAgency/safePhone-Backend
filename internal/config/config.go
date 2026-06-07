@@ -56,6 +56,11 @@ type Config struct {
 	FrontendURL      string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 	BackendPublicURL string `env:"BACKEND_PUBLIC_URL"`
 
+	// HMAC key for short-lived signed verification-media URLs (so an admin's
+	// browser can stream the proof without sending a bearer token). Falls back
+	// to another server secret in main if unset.
+	MediaURLSecret string `env:"MEDIA_URL_SECRET"`
+
 	// S3-compatible storage for commercial activity photos (Railway Buckets)
 	S3Endpoint        string `env:"S3_ENDPOINT"`
 	S3Region          string `env:"S3_REGION" envDefault:"auto"`
