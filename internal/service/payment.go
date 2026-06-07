@@ -914,29 +914,24 @@ func parseCheckoutWebhookData(data json.RawMessage) (*dexpay.CheckoutWebhookData
 }
 
 func (s *PaymentService) activateCoverage(ctx context.Context, sub *domain.Subscription, device *domain.Device) *domain.AppError {
-	// Plans v2: when the linked device is awaiting admin verification
-	// (default status for new devices since migration 000039), don't
-	// jump the subscription straight to active. Land in
-	// pending_verification so the admin approval flow gates activation
-	// — the Verifications tab flips it to active + sets activated_at.
-	// Legacy devices were backfilled to verification_status='approved'
-	// so existing customers keep the old immediate-activation path.
-	needsVerification := device != nil &&
-		device.VerificationStatus == domain.DeviceVerificationStatusPending &&
-		len(device.VerificationPhotos) > 0
+	// Plans v2: coverage activates immediately on payment — no admin
+	// pre-approval gate. The device's verification media is recorded and
+	// auto-approved; fraud is caught after the fact via the moderation tab
+	// (admin/employee suspend), not by blocking activation.
+	now := time.Now()
 
 	if sub != nil {
 		needsUpdate := false
-		targetStatus := domain.SubscriptionStatusActive
-		if needsVerification {
-			targetStatus = domain.SubscriptionStatusPendingVerification
+		if sub.Status != domain.SubscriptionStatusActive {
+			sub.Status = domain.SubscriptionStatusActive
+			needsUpdate = true
 		}
-		if sub.Status != targetStatus && sub.Status != domain.SubscriptionStatusActive {
-			sub.Status = targetStatus
+		if sub.ActivatedAt == nil {
+			sub.ActivatedAt = &now
 			needsUpdate = true
 		}
 		if sub.CurrentPeriodStart == nil || sub.CurrentPeriodEnd == nil {
-			periodStart, periodEnd := subscriptionCoverageWindow(sub.BillingCycle, time.Now())
+			periodStart, periodEnd := subscriptionCoverageWindow(sub.BillingCycle, now)
 			sub.CurrentPeriodStart = &periodStart
 			sub.CurrentPeriodEnd = &periodEnd
 			needsUpdate = true
@@ -949,9 +944,18 @@ func (s *PaymentService) activateCoverage(ctx context.Context, sub *domain.Subsc
 	}
 
 	if device != nil {
-		nextStatus := domain.DeviceStatusPending
-		if sub != nil && sub.Status == domain.SubscriptionStatusActive && (!device.RequiresIMEI() || strings.TrimSpace(device.IMEI) != "") {
-			nextStatus = domain.DeviceStatusActive
+		// Auto-approve any pending verification media so it leaves the pending
+		// state (moderation reviews active devices regardless of it).
+		if device.VerificationStatus == domain.DeviceVerificationStatusPending && len(device.VerificationPhotos) > 0 {
+			if err := s.deviceRepo.SetVerificationDecision(ctx, device.ID, domain.DeviceVerificationStatusApproved, device.UserID, ""); err != nil {
+				return domain.InternalError(err)
+			}
+			device.VerificationStatus = domain.DeviceVerificationStatusApproved
+		}
+		// Smartphones still need an IMEI to be considered active.
+		nextStatus := domain.DeviceStatusActive
+		if device.RequiresIMEI() && strings.TrimSpace(device.IMEI) == "" {
+			nextStatus = domain.DeviceStatusPending
 		}
 		if device.Status != nextStatus {
 			device.Status = nextStatus
