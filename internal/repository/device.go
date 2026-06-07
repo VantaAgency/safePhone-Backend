@@ -344,3 +344,78 @@ func (r *DeviceRepository) ListPendingVerifications(
 	}
 	return devices, rows.Err()
 }
+
+// ListActiveWithVerification returns covered devices (active or suspended) that
+// carry verification proof, org-scoped and paginated — the moderation queue
+// where an admin or employee can suspend one that looks fraudulent (or
+// reactivate a suspended one). Newest first.
+func (r *DeviceRepository) ListActiveWithVerification(
+	ctx context.Context,
+	orgID uuid.UUID,
+	limit, offset int,
+) ([]domain.Device, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, market,
+		       verification_photos, verification_video, verification_status,
+		       verified_at, verified_by, verification_rejected_reason,
+		       created_at, updated_at, deleted_at
+		FROM devices
+		WHERE org_id = $1
+		  AND status IN ('active', 'suspended')
+		  AND deleted_at IS NULL
+		  AND COALESCE(array_length(verification_photos, 1), 0) > 0
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []domain.Device
+	for rows.Next() {
+		var d domain.Device
+		var imei *string
+		var metadata []byte
+		if err := rows.Scan(
+			&d.ID, &d.OrgID, &d.UserID, &d.DeviceType, &d.Brand, &d.Model, &metadata, &imei, &d.Status, &d.Market,
+			&d.VerificationPhotos, &d.VerificationVideo, &d.VerificationStatus,
+			&d.VerifiedAt, &d.VerifiedBy, &d.VerificationRejectedReason,
+			&d.CreatedAt, &d.UpdatedAt, &d.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		d.IMEI = scanIMEI(imei)
+		d.Metadata = scanDeviceMetadata(metadata)
+		devices = append(devices, d)
+	}
+	if devices == nil {
+		devices = []domain.Device{}
+	}
+	return devices, rows.Err()
+}
+
+// SetStatus updates only a device's lifecycle status (e.g. active <-> suspended
+// for moderation). Leaves verification fields untouched.
+func (r *DeviceRepository) SetStatus(ctx context.Context, deviceID uuid.UUID, status domain.DeviceStatus) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE devices SET status = $2, updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, deviceID, status)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}

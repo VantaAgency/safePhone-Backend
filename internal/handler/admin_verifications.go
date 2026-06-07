@@ -90,3 +90,57 @@ func (h *AdminVerificationsHandler) Reject(w http.ResponseWriter, r *http.Reques
 	}
 	WriteSuccess(w, r, http.StatusOK, map[string]string{"status": "rejected"})
 }
+
+// ListModeration returns covered devices (admin/employee) for fraud review.
+func (h *AdminVerificationsHandler) ListModeration(w http.ResponseWriter, r *http.Request) {
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	devices, appErr := h.svc.ListForModeration(r.Context(), ac, limit, offset)
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+	WriteSuccess(w, r, http.StatusOK, devices)
+}
+
+// Suspend takes a flagged device out of coverage (reversible).
+func (h *AdminVerificationsHandler) Suspend(w http.ResponseWriter, r *http.Request) {
+	h.moderate(w, r, func(ac *auth.AuthContext, id uuid.UUID) *domain.AppError {
+		return h.svc.Suspend(r.Context(), ac, id)
+	}, "suspended")
+}
+
+// Reactivate restores a suspended device to coverage.
+func (h *AdminVerificationsHandler) Reactivate(w http.ResponseWriter, r *http.Request) {
+	h.moderate(w, r, func(ac *auth.AuthContext, id uuid.UUID) *domain.AppError {
+		return h.svc.Reactivate(r.Context(), ac, id)
+	}, "active")
+}
+
+func (h *AdminVerificationsHandler) moderate(
+	w http.ResponseWriter,
+	r *http.Request,
+	action func(*auth.AuthContext, uuid.UUID) *domain.AppError,
+	resultStatus string,
+) {
+	ac, err := auth.GetAuthContext(r.Context())
+	if err != nil {
+		WriteError(w, r, domain.Unauthorized("authentication required"))
+		return
+	}
+	deviceID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		WriteError(w, r, domain.BadRequest("invalid device ID"))
+		return
+	}
+	if appErr := action(ac, deviceID); appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+	WriteSuccess(w, r, http.StatusOK, map[string]string{"status": resultStatus})
+}

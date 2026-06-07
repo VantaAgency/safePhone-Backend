@@ -166,8 +166,8 @@ func (h *VerificationMediaHandler) Serve(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Authorization: uploader OR admin.
-	if userID != ac.UserID.String() && !ac.HasRole(auth.RoleAdmin) {
+	// Authorization: uploader OR admin/employee (the moderation reviewers).
+	if userID != ac.UserID.String() && !ac.HasRole(auth.RoleAdmin) && !ac.HasRole(auth.RoleEmployee) {
 		WriteError(w, r, domain.Forbidden("not allowed"))
 		return
 	}

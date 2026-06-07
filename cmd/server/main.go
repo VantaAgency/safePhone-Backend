@@ -382,6 +382,16 @@ func main() {
 				r.Post("/verifications/{id}/reject", adminVerificationsH.Reject)
 			})
 
+			// Plans v2 — device moderation. Added devices activate immediately
+			// (auto-approved), so admins AND employees review covered devices
+			// here and suspend (reversibly) anything fraudulent.
+			r.Route("/moderation", func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleAdmin, auth.RoleEmployee))
+				r.Get("/devices", adminVerificationsH.ListModeration)
+				r.Post("/devices/{id}/suspend", adminVerificationsH.Suspend)
+				r.Post("/devices/{id}/reactivate", adminVerificationsH.Reactivate)
+			})
+
 			// Employee routes
 			r.Route("/employee", func(r chi.Router) {
 				r.Use(auth.RequireRole(auth.RoleEmployee))

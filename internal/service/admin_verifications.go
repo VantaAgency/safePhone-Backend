@@ -133,3 +133,60 @@ func (s *VerificationService) Reject(
 	}
 	return nil
 }
+
+// canModerate gates the moderation surface: admins and employees can review
+// covered devices and suspend/reactivate ones that look fraudulent.
+func canModerate(ac *auth.AuthContext) bool {
+	return ac.HasRole(auth.RoleAdmin) || ac.HasRole(auth.RoleEmployee)
+}
+
+// ListForModeration returns covered (active/suspended) devices with proof so an
+// admin or employee can review them and suspend anything fraudulent. Unlike
+// List (the pending-approval queue), these devices are already live.
+func (s *VerificationService) ListForModeration(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	limit, offset int,
+) ([]domain.Device, *domain.AppError) {
+	if !canModerate(ac) {
+		return nil, domain.Forbidden("admin or employee role required")
+	}
+	devices, err := s.devices.ListActiveWithVerification(ctx, ac.OrgID, limit, offset)
+	if err != nil {
+		return nil, domain.InternalError(err)
+	}
+	return devices, nil
+}
+
+// Suspend takes a covered device out of coverage (reversible) — the moderation
+// action for a device flagged as fraudulent.
+func (s *VerificationService) Suspend(ctx context.Context, ac *auth.AuthContext, deviceID uuid.UUID) *domain.AppError {
+	return s.setModerationStatus(ctx, ac, deviceID, domain.DeviceStatusSuspended)
+}
+
+// Reactivate restores a suspended device to active coverage (false alarm).
+func (s *VerificationService) Reactivate(ctx context.Context, ac *auth.AuthContext, deviceID uuid.UUID) *domain.AppError {
+	return s.setModerationStatus(ctx, ac, deviceID, domain.DeviceStatusActive)
+}
+
+func (s *VerificationService) setModerationStatus(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	deviceID uuid.UUID,
+	status domain.DeviceStatus,
+) *domain.AppError {
+	if !canModerate(ac) {
+		return domain.Forbidden("admin or employee role required")
+	}
+	device, err := s.devices.LoadVerification(ctx, deviceID)
+	if err != nil {
+		return domain.InternalError(err)
+	}
+	if device == nil || device.OrgID != ac.OrgID {
+		return domain.NotFound("device")
+	}
+	if err := s.devices.SetStatus(ctx, deviceID, status); err != nil {
+		return domain.InternalError(err)
+	}
+	return nil
+}
