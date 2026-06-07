@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +16,68 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 )
+
+// MediaContent is a (possibly partial) read of a stored media object — enough
+// for the HTTP handler to answer a Range request and let a browser stream
+// video instead of downloading the whole file first.
+type MediaContent struct {
+	Body          io.ReadCloser
+	ContentType   string
+	ContentLength int64  // bytes in Body; -1 if unknown
+	ContentRange  string // "bytes start-end/total" when Partial
+	Partial       bool   // true → respond 206
+}
+
+// parseByteRange handles a single "bytes=start-end" / "bytes=start-" /
+// "bytes=-suffix" range against a known size. ok=false when unparseable or
+// unsatisfiable (caller then serves the whole object).
+func parseByteRange(header string, size int64) (start, end int64, ok bool) {
+	if !strings.HasPrefix(header, "bytes=") || size <= 0 {
+		return 0, 0, false
+	}
+	spec := strings.TrimPrefix(header, "bytes=")
+	if spec == "" || strings.Contains(spec, ",") {
+		return 0, 0, false
+	}
+	dash := strings.IndexByte(spec, '-')
+	if dash < 0 {
+		return 0, 0, false
+	}
+	startStr, endStr := spec[:dash], spec[dash+1:]
+	if startStr == "" {
+		n, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		if n > size {
+			n = size
+		}
+		return size - n, size - 1, true
+	}
+	start, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return 0, 0, false
+	}
+	end = size - 1
+	if endStr != "" {
+		end, err = strconv.ParseInt(endStr, 10, 64)
+		if err != nil || end < start {
+			return 0, 0, false
+		}
+	}
+	if end >= size {
+		end = size - 1
+	}
+	return start, end, true
+}
+
+type limitedReadCloser struct {
+	r io.Reader
+	c io.Closer
+}
+
+func (l *limitedReadCloser) Read(p []byte) (int, error) { return l.r.Read(p) }
+func (l *limitedReadCloser) Close() error               { return l.c.Close() }
 
 func bytesReader(data []byte) io.Reader { return bytes.NewReader(data) }
 
@@ -28,6 +91,9 @@ func bytesReader(data []byte) io.Reader { return bytes.NewReader(data) }
 type VerificationMediaStore interface {
 	Store(ctx context.Context, userID, ext, contentType string, data []byte) (token string, err error)
 	Open(ctx context.Context, token string) (io.ReadCloser, string, error)
+	// OpenRange reads an object honoring an HTTP Range header (empty = whole
+	// object), so video can stream / seek.
+	OpenRange(ctx context.Context, token, rangeHeader string) (*MediaContent, error)
 }
 
 // LocalVerificationMediaStore writes to disk. Used in dev and as the
@@ -68,6 +134,40 @@ func (s *LocalVerificationMediaStore) Open(_ context.Context, token string) (io.
 		ct = strings.TrimSpace(string(b))
 	}
 	return f, ct, nil
+}
+
+func (s *LocalVerificationMediaStore) OpenRange(_ context.Context, token, rangeHeader string) (*MediaContent, error) {
+	path := filepath.Join(s.Root, filepath.FromSlash(token))
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	ct := ""
+	if b, err := os.ReadFile(path + ".ct"); err == nil {
+		ct = strings.TrimSpace(string(b))
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	size := fi.Size()
+	if rangeHeader != "" {
+		if start, end, ok := parseByteRange(rangeHeader, size); ok {
+			if _, err := f.Seek(start, io.SeekStart); err != nil {
+				f.Close()
+				return nil, err
+			}
+			return &MediaContent{
+				Body:          &limitedReadCloser{r: io.LimitReader(f, end-start+1), c: f},
+				ContentType:   ct,
+				ContentLength: end - start + 1,
+				ContentRange:  fmt.Sprintf("bytes %d-%d/%d", start, end, size),
+				Partial:       true,
+			}, nil
+		}
+	}
+	return &MediaContent{Body: f, ContentType: ct, ContentLength: size}, nil
 }
 
 type S3VerificationMediaStoreConfig struct {
@@ -157,4 +257,37 @@ func (s *S3VerificationMediaStore) Open(ctx context.Context, token string) (io.R
 		ct = *output.ContentType
 	}
 	return output.Body, ct, nil
+}
+
+func (s *S3VerificationMediaStore) OpenRange(ctx context.Context, token, rangeHeader string) (*MediaContent, error) {
+	key := token
+	if s.prefix != "" {
+		key = s.prefix + "/" + token
+	}
+	in := &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}
+	if rangeHeader != "" {
+		in.Range = aws.String(rangeHeader)
+	}
+	output, err := s.client.GetObject(ctx, in)
+	if err != nil {
+		if s.fallback != nil {
+			return s.fallback.OpenRange(ctx, token, rangeHeader)
+		}
+		return nil, fmt.Errorf("failed to read verification media from bucket: %w", err)
+	}
+	mc := &MediaContent{Body: output.Body, ContentLength: -1}
+	if output.ContentType != nil {
+		mc.ContentType = *output.ContentType
+	}
+	if output.ContentLength != nil {
+		mc.ContentLength = *output.ContentLength
+	}
+	if output.ContentRange != nil && *output.ContentRange != "" {
+		mc.ContentRange = *output.ContentRange
+		mc.Partial = true
+	}
+	return mc, nil
 }

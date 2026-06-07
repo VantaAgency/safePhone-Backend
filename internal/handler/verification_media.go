@@ -204,20 +204,31 @@ func (h *VerificationMediaHandler) ServeSigned(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	rc, ct, err := h.store.Open(r.Context(), objectPath)
+	mc, err := h.store.OpenRange(r.Context(), objectPath, r.Header.Get("Range"))
 	if err != nil {
 		slog.Warn("verification media: open failed", "error", err, "user_id", userID, "filename", filename)
 		WriteError(w, r, domain.NotFound("verification media not found"))
 		return
 	}
-	defer rc.Close()
+	defer mc.Body.Close()
 
+	ct := mc.ContentType
 	if ct == "" {
 		ct = contentTypeFromExt(filename)
 	}
 	w.Header().Set("Content-Type", ct)
+	// Advertise + honor Range so a <video> streams/seeks instead of pulling
+	// the whole file before it can play.
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, max-age=300")
-	if _, err := io.Copy(w, rc); err != nil {
+	if mc.ContentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(mc.ContentLength, 10))
+	}
+	if mc.Partial {
+		w.Header().Set("Content-Range", mc.ContentRange)
+		w.WriteHeader(http.StatusPartialContent)
+	}
+	if _, err := io.Copy(w, mc.Body); err != nil {
 		return
 	}
 }
