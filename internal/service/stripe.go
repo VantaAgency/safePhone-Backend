@@ -187,8 +187,13 @@ func (s *StripeService) RegisterDevice(
 	ac *auth.AuthContext,
 	p RegisterDeviceParams,
 ) (*RegisterDeviceResult, *domain.AppError) {
-	if p.Brand == "" || p.Model == "" {
-		return nil, domain.BadRequest("brand and model are required")
+	if p.Model == "" {
+		return nil, domain.BadRequest("model is required")
+	}
+	// Brand is required only for smartphones; non-phones (TV, console,
+	// tablet, computer) carry the full name in Model and send no brand.
+	if domain.NormalizeDeviceType(p.DeviceType) == domain.DeviceTypeSmartphone && p.Brand == "" {
+		return nil, domain.BadRequest("brand is required for smartphones")
 	}
 	if p.IMEI != "" && !domain.IsValidIMEI(p.IMEI) {
 		return nil, domain.BadRequest("IMEI is not valid (must be 15 digits with a valid checksum)")

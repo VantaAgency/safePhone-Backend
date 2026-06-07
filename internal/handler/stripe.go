@@ -41,7 +41,9 @@ type StripeCheckoutRequest struct {
 // stores them onto the device row and the admin reviews them via the
 // Verifications tab before the subscription leaves pending_verification.
 type RegisterUSDeviceRequest struct {
-	Brand        string   `json:"brand" validate:"required,min=1,max=100"`
+	// Brand required only for smartphones — enforced per device type in the
+	// service. Non-phones send an empty brand and carry the name in Model.
+	Brand        string   `json:"brand" validate:"omitempty,max=100"`
 	Model        string   `json:"model" validate:"required,min=1,max=200"`
 	IMEI         string   `json:"imei" validate:"omitempty,len=15,numeric"`
 	DeviceType   string   `json:"device_type" validate:"omitempty,oneof=smartphone tablet computer game_console tv"`
@@ -122,13 +124,13 @@ func (h *StripeHandler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Plans v2 verification gate. Enforce the 2+1 minimum once the
-	// upload route handler exists; until the frontend ships the wizard,
-	// allow empty arrays so the existing register-device form keeps
-	// working without verification.
-	if len(req.Photos) > 0 && len(req.Photos) < 2 {
-		WriteError(w, r, domain.ValidationFailed("verification requires 2 photos", map[string]string{
-			"photos": "at least 2 photo URLs are required (front and back)",
+	// Plans v2 verification gate. Empty arrays are allowed (legacy
+	// register-device form without verification). The required photo count
+	// is per device type (smartphone 2, others 1) — use the same
+	// RequiredVerificationPhotos source as the service to avoid drift.
+	if n := domain.RequiredVerificationPhotos(domain.NormalizeDeviceType(req.DeviceType)); len(req.Photos) > 0 && len(req.Photos) < n {
+		WriteError(w, r, domain.ValidationFailed("insufficient verification photos", map[string]string{
+			"photos": "more photo URLs are required for this device type",
 		}))
 		return
 	}
