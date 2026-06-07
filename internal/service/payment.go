@@ -224,6 +224,17 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 		sub.CurrentPeriodStart = nil
 		sub.CurrentPeriodEnd = nil
 
+		// Register the primary device in subscription_devices too, so the
+		// per-type cap counting (CountByType) and the add-device modal's
+		// remaining-slot math see it — same as the US/Stripe register flow.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO subscription_devices (subscription_id, device_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, sub.ID, device.ID); err != nil {
+			return fmt.Errorf("attach primary device to subscription: %w", err)
+		}
+
 		payment.SubscriptionID = sub.ID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO payments (
@@ -1037,6 +1048,15 @@ func (s *PaymentService) createRenewalSubscriptionAndPayment(
 		).Scan(&sub.ID, &sub.CreatedAt, &sub.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert renewal subscription: %w", err)
+		}
+
+		// Link the device to the new (renewed) subscription row for cap counting.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO subscription_devices (subscription_id, device_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, sub.ID, sub.DeviceID); err != nil {
+			return fmt.Errorf("attach device to renewal subscription: %w", err)
 		}
 
 		payment.SubscriptionID = sub.ID
