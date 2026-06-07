@@ -239,8 +239,8 @@ func (r *DeviceRepository) SetVerificationDecision(
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE devices SET
-		    verification_status = $2,
-		    verified_at = CASE WHEN $2 = 'approved' THEN now() ELSE NULL END,
+		    verification_status = $2::text,
+		    verified_at = CASE WHEN $2::text = 'approved' THEN now() ELSE NULL END,
 		    verified_by = $3,
 		    verification_rejected_reason = $4,
 		    updated_at = now()

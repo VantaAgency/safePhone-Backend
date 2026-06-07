@@ -128,6 +128,10 @@ func (s *DeviceService) AddToSubscription(
 		}
 	}
 
+	// A device added to a subscription within the plan's caps is free and
+	// activates immediately — no admin pre-approval gate. The verification
+	// media is still recorded and auto-approved so admins/employees can review
+	// it after the fact and cancel the device if it looks fraudulent.
 	device := &domain.Device{
 		OrgID:      ac.OrgID,
 		UserID:     ac.UserID,
@@ -136,7 +140,7 @@ func (s *DeviceService) AddToSubscription(
 		Model:      model,
 		Metadata:   metadata,
 		IMEI:       imei,
-		Status:     domain.DeviceStatusPending,
+		Status:     domain.DeviceStatusActive,
 	}
 	if err := s.repo.Create(ctx, device); err != nil {
 		return nil, domain.InternalError(err)
@@ -146,8 +150,11 @@ func (s *DeviceService) AddToSubscription(
 		if err := s.repo.SetVerificationMedia(ctx, device.ID, verificationPhotos, verificationVideo); err != nil {
 			return nil, domain.InternalError(err)
 		}
+		if err := s.repo.SetVerificationDecision(ctx, device.ID, domain.DeviceVerificationStatusApproved, ac.UserID, ""); err != nil {
+			return nil, domain.InternalError(err)
+		}
 		device.VerificationPhotos = verificationPhotos
-		device.VerificationStatus = domain.DeviceVerificationStatusPending
+		device.VerificationStatus = domain.DeviceVerificationStatusApproved
 	}
 
 	if err := s.subDevices.Attach(ctx, subscriptionID, device.ID); err != nil {

@@ -31,6 +31,7 @@ type DeviceRepository interface {
 	Update(ctx context.Context, device *Device) error
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 	SetVerificationMedia(ctx context.Context, deviceID uuid.UUID, photoURLs []string, videoURL string) error
+	SetVerificationDecision(ctx context.Context, deviceID uuid.UUID, status DeviceVerificationStatus, reviewerID uuid.UUID, rejectionReason string) error
 }
 
 // SubscriptionRepository defines data access for subscriptions.

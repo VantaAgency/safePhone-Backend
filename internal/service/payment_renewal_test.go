@@ -498,6 +498,10 @@ func (s *stubRenewalDeviceRepository) GetByIMEI(_ context.Context, _ string) (*d
 func (s *stubRenewalDeviceRepository) SetVerificationMedia(_ context.Context, _ uuid.UUID, _ []string, _ string) error {
 	return nil
 }
+
+func (s *stubRenewalDeviceRepository) SetVerificationDecision(_ context.Context, _ uuid.UUID, _ domain.DeviceVerificationStatus, _ uuid.UUID, _ string) error {
+	return nil
+}
 func (s *stubRenewalDeviceRepository) ListByOrgAndUser(_ context.Context, orgID, userID uuid.UUID, _, _ int) ([]domain.Device, error) {
 	var devices []domain.Device
 	for _, device := range s.devices {
