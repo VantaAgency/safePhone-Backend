@@ -91,8 +91,8 @@ func (s *PartnerApplicationService) Submit(ctx context.Context, ac *auth.AuthCon
 	}
 
 	commissionPercentage := defaultCommercialPartnerCommissionPercentage
-	if err := s.createAndApproveCommercialApplication(ctx, app, commissionPercentage); err != nil {
-		return nil, domain.InternalError(err)
+	if appErr := s.createAndApproveCommercialApplication(ctx, app, commissionPercentage); appErr != nil {
+		return nil, appErr
 	}
 	return app, nil
 }
@@ -202,7 +202,12 @@ func (s *PartnerApplicationService) rejectApplication(ctx context.Context, app *
 	return nil
 }
 
-func (s *PartnerApplicationService) createAndApproveCommercialApplication(ctx context.Context, app *domain.PartnerApplication, commissionPercentage float64) error {
+// Returns *domain.AppError (not the error interface) so a nil result stays a
+// true nil at the call site. Declaring `error` here would box a nil
+// *domain.AppError into a non-nil interface, making Submit treat a SUCCESSFUL
+// approval as a failure — and then panic in respond.Error calling .Error() on
+// the nil pointer.
+func (s *PartnerApplicationService) createAndApproveCommercialApplication(ctx context.Context, app *domain.PartnerApplication, commissionPercentage float64) *domain.AppError {
 	now := time.Now()
 	app.Status = string(domain.PartnerAppStatusApproved)
 	app.ReviewedAt = &now
