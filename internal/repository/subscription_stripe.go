@@ -115,7 +115,14 @@ func (r *SubscriptionRepository) FindUSPendingSubscriptionWithoutDevice(
 		WHERE user_id = $1
 		  AND market = 'US'
 		  AND device_id IS NULL
-		  AND status IN ('pending', 'active', 'past_due')
+		  -- 'pending_verification' is included on purpose: the Stripe
+		  -- invoice.paid webhook advances a fresh US sub pending ->
+		  -- pending_verification within seconds of checkout, which races
+		  -- ahead of the user reaching /us/register-device. The device_id IS
+		  -- NULL guard already restricts this to subs that still need a
+		  -- device, so matching pending_verification here just lets the
+		  -- registration find the paid sub regardless of webhook timing.
+		  AND status IN ('pending', 'pending_verification', 'active', 'past_due')
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, userID).Scan(
