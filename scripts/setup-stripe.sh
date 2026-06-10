@@ -53,7 +53,7 @@ fi
 
 # `stripe config --list` exits 0 even when not logged in, so we probe
 # via a cheap API call instead.
-if ! stripe $MODE_FLAG products list --limit 1 >/dev/null 2>&1; then
+if ! stripe products list --limit 1 $MODE_FLAG >/dev/null 2>&1; then
   echo "✗ stripe CLI is not authenticated for ${MODE_FLAG:-test} mode." >&2
   echo "  Run: stripe login ${MODE_FLAG}" >&2
   exit 1
@@ -89,7 +89,7 @@ for entry in "${PLANS[@]}"; do
   IFS=: read -r SLUG CENTS NAME VAR <<< "$entry"
   printf "▸ %-15s  $%-6s  %s ... " "$SLUG" "$(awk -v c=$CENTS 'BEGIN{printf "%.2f", c/100}')" "$NAME"
 
-  PRODUCT_JSON=$(stripe $MODE_FLAG products create \
+  PRODUCT_JSON=$(stripe products create $MODE_FLAG \
     --name="$NAME" \
     -d "metadata[safephone_slug]=$SLUG" \
     -d "metadata[safephone_market]=US")
@@ -102,7 +102,7 @@ for entry in "${PLANS[@]}"; do
     exit 1
   fi
 
-  PRICE_JSON=$(stripe $MODE_FLAG prices create \
+  PRICE_JSON=$(stripe prices create $MODE_FLAG \
     --product="$PRODUCT_ID" \
     --unit-amount="$CENTS" \
     --currency=usd \
