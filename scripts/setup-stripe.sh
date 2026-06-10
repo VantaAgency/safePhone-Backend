@@ -70,12 +70,13 @@ echo "▸ Env file:   $ENV_FILE"
 echo
 
 # ──────────────────────────────────────────────────────────────────────
-# Plan catalog — mirrors migration 000036_us_plans_mirror_sn.up.sql
-# Format: slug:cents:name:env_var
+# Plan catalog — cents MUST match plans.price_monthly in the DB
+# (see 000040_seed_plans_v2.up.sql) so the Stripe charge equals the price
+# shown on the site. Format: slug:cents:name:env_var
 # ──────────────────────────────────────────────────────────────────────
 
 PLANS=(
-  "us_essentiel:999:SafePhone Essential (US):STRIPE_PRICE_ESSENTIEL"
+  "us_essentiel:799:SafePhone Essential (US):STRIPE_PRICE_ESSENTIEL"
   "us_ecran_plus:1499:SafePhone Screen+ (US):STRIPE_PRICE_ECRAN_PLUS"
   "us_plus:1999:SafePhone Plus (US):STRIPE_PRICE_PLUS"
   "us_premium:2999:SafePhone Premium (US):STRIPE_PRICE_PREMIUM"
