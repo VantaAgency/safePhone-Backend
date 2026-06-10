@@ -38,10 +38,11 @@ RUN go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server
 FROM alpine:3.20 AS prod
 WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 1001 app
-COPY --from=build /out/server /app/server
+# Binary lives at /app/bin/server to match Railway's start command (`./bin/server`).
+COPY --from=build /out/server /app/bin/server
 # Migrations ship with the image so Railway / scripts can run `migrate-up`
 # from inside the container if needed.
 COPY --from=build /app/migrations /app/migrations
 USER app
 EXPOSE 8080
-ENTRYPOINT ["/app/server"]
+CMD ["/app/bin/server"]
