@@ -18,9 +18,7 @@ RUN apk add --no-cache git ca-certificates
 FROM base AS dev
 ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN go mod download
 COPY . .
 EXPOSE 8080
 # `go run` recompiles on each launch — fine for dev since the compose volume
@@ -32,13 +30,9 @@ CMD ["go", "run", "./cmd/server"]
 FROM base AS build
 ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN go mod download
 COPY . .
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server
+RUN go build -trimpath -ldflags='-s -w' -o /out/server ./cmd/server
 
 # ── prod ───────────────────────────────────────────────────────────────────
 FROM alpine:3.20 AS prod
