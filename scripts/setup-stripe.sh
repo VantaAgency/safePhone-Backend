@@ -51,11 +51,23 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+# Auth appended to every stripe call. A full secret key in STRIPE_API_KEY
+# wins: `stripe login` stores a restricted key (rk_live_…) that lacks
+# product/price write scopes in live mode (403s on create). Pass a full
+# sk_live_… instead:  STRIPE_API_KEY=sk_live_… ./scripts/setup-stripe.sh --live
+AUTH=""
+if [[ -n "${STRIPE_API_KEY:-}" ]]; then
+  AUTH="--api-key $STRIPE_API_KEY"
+elif [[ -n "$MODE_FLAG" ]]; then
+  AUTH="$MODE_FLAG"
+fi
+
 # `stripe config --list` exits 0 even when not logged in, so we probe
 # via a cheap API call instead.
-if ! stripe products list --limit 1 $MODE_FLAG >/dev/null 2>&1; then
-  echo "✗ stripe CLI is not authenticated for ${MODE_FLAG:-test} mode." >&2
-  echo "  Run: stripe login ${MODE_FLAG}" >&2
+if ! stripe products list --limit 1 $AUTH >/dev/null 2>&1; then
+  echo "✗ stripe CLI auth failed for ${MODE_FLAG:-test} mode." >&2
+  echo "  Either: stripe login ${MODE_FLAG}" >&2
+  echo "  Or pass a full secret key: STRIPE_API_KEY=sk_live_… $0 ${MODE_FLAG}" >&2
   exit 1
 fi
 
@@ -89,7 +101,7 @@ for entry in "${PLANS[@]}"; do
   IFS=: read -r SLUG CENTS NAME VAR <<< "$entry"
   printf "▸ %-15s  $%-6s  %s ... " "$SLUG" "$(awk -v c=$CENTS 'BEGIN{printf "%.2f", c/100}')" "$NAME"
 
-  PRODUCT_JSON=$(stripe products create $MODE_FLAG \
+  PRODUCT_JSON=$(stripe products create $AUTH \
     --name="$NAME" \
     -d "metadata[safephone_slug]=$SLUG" \
     -d "metadata[safephone_market]=US")
@@ -102,7 +114,7 @@ for entry in "${PLANS[@]}"; do
     exit 1
   fi
 
-  PRICE_JSON=$(stripe prices create $MODE_FLAG \
+  PRICE_JSON=$(stripe prices create $AUTH \
     --product="$PRODUCT_ID" \
     --unit-amount="$CENTS" \
     --currency=usd \
