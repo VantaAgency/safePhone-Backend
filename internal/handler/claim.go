@@ -137,7 +137,13 @@ func (h *ClaimHandler) AdminList(w http.ResponseWriter, r *http.Request) {
 		statusPtr = &status
 	}
 
-	claims, appErr := h.svc.ListByOrg(r.Context(), ac, statusPtr, limit, offset)
+	market, appErr := parseMarketQuery(r.URL.Query().Get("market"))
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	claims, appErr := h.svc.ListByOrg(r.Context(), ac, statusPtr, market, limit, offset)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

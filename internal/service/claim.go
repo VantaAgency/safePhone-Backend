@@ -112,6 +112,9 @@ func (s *ClaimService) Create(ctx context.Context, ac *auth.AuthContext, deviceI
 		ClaimType:      claimType,
 		Description:    desc,
 		Status:         domain.ClaimStatusPending,
+		// A claim inherits its device's market — the device is the source
+		// of truth, never the auth context.
+		Market: device.Market,
 	}
 
 	if err := s.repo.Create(ctx, claim); err != nil {
@@ -143,8 +146,8 @@ func (s *ClaimService) Get(ctx context.Context, ac *auth.AuthContext, id uuid.UU
 }
 
 // ListByOrg returns all claims in the org (admin use).
-func (s *ClaimService) ListByOrg(ctx context.Context, ac *auth.AuthContext, status *string, limit, offset int) ([]domain.Claim, *domain.AppError) {
-	claims, err := s.repo.ListByOrg(ctx, ac.OrgID, status, limit, offset)
+func (s *ClaimService) ListByOrg(ctx context.Context, ac *auth.AuthContext, status *string, market string, limit, offset int) ([]domain.Claim, *domain.AppError) {
+	claims, err := s.repo.ListByOrg(ctx, ac.OrgID, status, market, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}

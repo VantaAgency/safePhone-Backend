@@ -154,7 +154,13 @@ func (h *RepairHandler) AdminList(w http.ResponseWriter, r *http.Request) {
 		statusPtr = &status
 	}
 
-	bookings, appErr := h.svc.AdminList(r.Context(), ac, statusPtr, search, limit, offset)
+	market, appErr := parseMarketQuery(r.URL.Query().Get("market"))
+	if appErr != nil {
+		WriteError(w, r, appErr)
+		return
+	}
+
+	bookings, appErr := h.svc.AdminList(r.Context(), ac, statusPtr, search, market, limit, offset)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

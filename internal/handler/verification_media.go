@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/cherif-safephone/safephone-backend/internal/auth"
 	"github.com/cherif-safephone/safephone-backend/internal/domain"
@@ -186,8 +187,21 @@ func (h *VerificationMediaHandler) Upload(w http.ResponseWriter, r *http.Request
 func (h *VerificationMediaHandler) ServeSigned(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	filename := chi.URLParam(r, "filename")
-	if userID == "" || filename == "" ||
-		strings.Contains(filename, "/") || strings.Contains(filename, "..") {
+	if userID == "" || filename == "" {
+		WriteError(w, r, domain.NotFound("verification media not found"))
+		return
+	}
+	// Reject path traversal. Both userID and filename become path segments in
+	// the storage token, so BOTH must be validated — an admin bypasses the
+	// authorization check below and could otherwise smuggle "../" via userID.
+	if strings.ContainsAny(filename, `/\`) || strings.Contains(filename, "..") ||
+		strings.ContainsAny(userID, `/\`) || strings.Contains(userID, "..") {
+		WriteError(w, r, domain.NotFound("verification media not found"))
+		return
+	}
+	// Stored tokens always key on a UUID userID; reject anything else so the
+	// segment can't be a crafted path even if the checks above were relaxed.
+	if _, err := uuid.Parse(userID); err != nil {
 		WriteError(w, r, domain.NotFound("verification media not found"))
 		return
 	}

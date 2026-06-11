@@ -24,7 +24,7 @@ func NewPlanRepository(pool *pgxpool.Pool) *PlanRepository {
 	return &PlanRepository{pool: pool, timeout: 5 * time.Second}
 }
 
-const planColumns = `id, slug, name_fr, name_en, price_monthly, price_annual, tier,
+const planColumns = `id, slug, name_fr, name_en, price_monthly, price_annual, market, currency, tier,
        device_range_fr, device_range_en, features_fr, features_en,
        not_covered_fr, not_covered_en, service_time, is_popular, sort_order,
        max_smartphones, max_tablets, max_computers, max_game_consoles, max_tvs,
@@ -141,7 +141,7 @@ func scanPlan(rows pgx.Rows) (*domain.Plan, error) {
 	var featuresFR, featuresEN, notCoveredFR, notCoveredEN json.RawMessage
 
 	err := rows.Scan(
-		&p.ID, &p.Slug, &p.NameFR, &p.NameEN, &p.PriceMonthly, &p.PriceAnnual, &p.Tier,
+		&p.ID, &p.Slug, &p.NameFR, &p.NameEN, &p.PriceMonthly, &p.PriceAnnual, &p.Market, &p.Currency, &p.Tier,
 		&p.DeviceRangeFR, &p.DeviceRangeEN, &featuresFR, &featuresEN,
 		&notCoveredFR, &notCoveredEN, &p.ServiceTime, &p.IsPopular, &p.SortOrder,
 		&p.MaxSmartphones, &p.MaxTablets, &p.MaxComputers, &p.MaxGameConsoles, &p.MaxTVs,
@@ -165,7 +165,7 @@ func scanPlanRow(row pgx.Row) (*domain.Plan, error) {
 	var featuresFR, featuresEN, notCoveredFR, notCoveredEN json.RawMessage
 
 	err := row.Scan(
-		&p.ID, &p.Slug, &p.NameFR, &p.NameEN, &p.PriceMonthly, &p.PriceAnnual, &p.Tier,
+		&p.ID, &p.Slug, &p.NameFR, &p.NameEN, &p.PriceMonthly, &p.PriceAnnual, &p.Market, &p.Currency, &p.Tier,
 		&p.DeviceRangeFR, &p.DeviceRangeEN, &featuresFR, &featuresEN,
 		&notCoveredFR, &notCoveredEN, &p.ServiceTime, &p.IsPopular, &p.SortOrder,
 		&p.MaxSmartphones, &p.MaxTablets, &p.MaxComputers, &p.MaxGameConsoles, &p.MaxTVs,

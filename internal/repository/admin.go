@@ -116,7 +116,7 @@ func (r *AdminRepository) GetStats(ctx context.Context, orgID uuid.UUID) (*domai
 }
 
 // ListCustomers returns a list of org customers with their subscriptions and device info.
-func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, search string, limit, offset int) ([]domain.AdminCustomer, error) {
+func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, search, market string, limit, offset int) ([]domain.AdminCustomer, error) {
 	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, nil, nil, nil); err != nil {
 		return nil, err
 	}
@@ -209,6 +209,7 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 		WHERE u.org_id = $1
 		  AND u.deleted_at IS NULL
 		  AND ($2 = '' OR lower(u.full_name) LIKE '%' || lower($2) || '%' OR lower(u.email) LIKE '%' || lower($2) || '%')
+		  AND ($3 = '' OR u.market = $3)
 		  -- "Customer" = anyone who could buy a plan. Partners and commercials
 		  -- often subscribe to a plan for their own phone too; excluding them
 		  -- here means an admin would never see those subscriptions on the
@@ -230,8 +231,8 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 			partner_attr.partner_attribution_source,
 			partner_attr.partner_attributed_at
 		ORDER BY u.created_at DESC
-		LIMIT $3 OFFSET $4
-	`, orgID, search, limit, offset)
+		LIMIT $4 OFFSET $5
+	`, orgID, search, market, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +278,7 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 }
 
 // ListPayments returns all payments in the org with enriched customer and plan info.
-func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]domain.AdminPayment, error) {
+func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, market string, limit, offset int) ([]domain.AdminPayment, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -302,9 +303,10 @@ func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, lim
 		JOIN users u ON u.id = pay.user_id
 		JOIN plans pl ON pl.id = pay.plan_id
 		WHERE pay.org_id = $1
+		  AND ($2 = '' OR pay.market = $2)
 		ORDER BY pay.created_at DESC
-		LIMIT $2 OFFSET $3
-	`, orgID, limit, offset)
+		LIMIT $3 OFFSET $4
+	`, orgID, market, limit, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -29,10 +29,10 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 
 	var u domain.User
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, email, full_name, phone, role, better_auth_id,
+		SELECT id, org_id, email, full_name, phone, role, market, better_auth_id,
 		       created_at, updated_at, deleted_at
 		FROM users WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&u.ID, &u.OrgID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.BetterAuthID,
+	`, id).Scan(&u.ID, &u.OrgID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.Market, &u.BetterAuthID,
 		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 
 	if err == pgx.ErrNoRows {
@@ -83,12 +83,12 @@ func (r *UserRepository) GetByStripeCustomerID(ctx context.Context, customerID s
 
 	var u domain.User
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, org_id, email, full_name, phone, role, better_auth_id,
+		SELECT id, org_id, email, full_name, phone, role, market, better_auth_id,
 		       created_at, updated_at, deleted_at
 		FROM users
 		WHERE stripe_customer_id = $1 AND deleted_at IS NULL
 		LIMIT 1
-	`, customerID).Scan(&u.ID, &u.OrgID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.BetterAuthID,
+	`, customerID).Scan(&u.ID, &u.OrgID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.Market, &u.BetterAuthID,
 		&u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil

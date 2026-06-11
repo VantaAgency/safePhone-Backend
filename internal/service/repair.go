@@ -12,12 +12,13 @@ import (
 
 // RepairService handles business logic for repair bookings.
 type RepairService struct {
-	repo domain.RepairRepository
+	repo     domain.RepairRepository
+	userRepo domain.UserRepository
 }
 
 // NewRepairService creates a new repair service.
-func NewRepairService(repo domain.RepairRepository) *RepairService {
-	return &RepairService{repo: repo}
+func NewRepairService(repo domain.RepairRepository, userRepo domain.UserRepository) *RepairService {
+	return &RepairService{repo: repo, userRepo: userRepo}
 }
 
 // CreateBooking saves a new repair booking and returns it with the generated reference.
@@ -54,16 +55,23 @@ func (s *RepairService) CreateBooking(
 
 	var orgID *uuid.UUID
 	var userID *uuid.UUID
+	var market domain.MarketCode
 	requestSource := domain.RepairRequestSourcePublicVisitor
 	if ac != nil {
 		orgID = &ac.OrgID
 		userID = &ac.UserID
 		requestSource = domain.RepairRequestSourceSafePhoneUser
+		// A repair inherits the requesting user's market; public/anonymous
+		// requests leave it empty and the repository defaults to SN.
+		if user, err := s.userRepo.GetByID(ctx, ac.UserID); err == nil && user != nil {
+			market = user.Market
+		}
 	}
 
 	booking := &domain.RepairBooking{
 		OrgID:                   orgID,
 		UserID:                  userID,
+		Market:                  market,
 		DeviceBrand:             deviceBrand,
 		DeviceModel:             deviceModel,
 		RepairType:              repairType,
@@ -110,8 +118,8 @@ func (s *RepairService) ListMine(ctx context.Context, ac *auth.AuthContext, limi
 }
 
 // AdminList returns org repair requests for admin users.
-func (s *RepairService) AdminList(ctx context.Context, ac *auth.AuthContext, status *string, search string, limit, offset int) ([]domain.RepairBooking, *domain.AppError) {
-	bookings, err := s.repo.ListByOrg(ctx, ac.OrgID, status, search, limit, offset)
+func (s *RepairService) AdminList(ctx context.Context, ac *auth.AuthContext, status *string, search, market string, limit, offset int) ([]domain.RepairBooking, *domain.AppError) {
+	bookings, err := s.repo.ListByOrg(ctx, ac.OrgID, status, search, market, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}

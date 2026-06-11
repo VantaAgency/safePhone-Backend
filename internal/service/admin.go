@@ -29,8 +29,8 @@ func (s *AdminService) GetStats(ctx context.Context, ac *auth.AuthContext) (*dom
 }
 
 // ListCustomers returns org customers with optional search.
-func (s *AdminService) ListCustomers(ctx context.Context, ac *auth.AuthContext, search string, limit, offset int) ([]domain.AdminCustomer, *domain.AppError) {
-	customers, err := s.repo.ListCustomers(ctx, ac.OrgID, search, limit, offset)
+func (s *AdminService) ListCustomers(ctx context.Context, ac *auth.AuthContext, search, market string, limit, offset int) ([]domain.AdminCustomer, *domain.AppError) {
+	customers, err := s.repo.ListCustomers(ctx, ac.OrgID, search, market, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
@@ -38,8 +38,8 @@ func (s *AdminService) ListCustomers(ctx context.Context, ac *auth.AuthContext, 
 }
 
 // ListPayments returns all payments in the org.
-func (s *AdminService) ListPayments(ctx context.Context, ac *auth.AuthContext, limit, offset int) ([]domain.AdminPayment, *domain.AppError) {
-	payments, err := s.repo.ListPayments(ctx, ac.OrgID, limit, offset)
+func (s *AdminService) ListPayments(ctx context.Context, ac *auth.AuthContext, market string, limit, offset int) ([]domain.AdminPayment, *domain.AppError) {
+	payments, err := s.repo.ListPayments(ctx, ac.OrgID, market, limit, offset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}

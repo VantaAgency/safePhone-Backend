@@ -204,7 +204,7 @@ func main() {
 	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, commercialRepo, pool)
 	partnerSvc := service.NewPartnerService(partnerRepo, userRepo, paymentRepo, cfg.FrontendURL)
 	commercialSvc := service.NewCommercialService(commercialRepo, partnerRepo, cfg.FrontendURL, activityPhotoStore)
-	repairSvc := service.NewRepairService(repairRepo)
+	repairSvc := service.NewRepairService(repairRepo, userRepo)
 	employeeSvc := service.NewEmployeeService(employeeRepo, userRepo, subRepo, claimRepo, repairSvc)
 
 	// Initialize handlers

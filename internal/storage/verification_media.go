@@ -125,6 +125,22 @@ func (s *LocalVerificationMediaStore) Store(_ context.Context, userID, ext, cont
 
 func (s *LocalVerificationMediaStore) Open(_ context.Context, token string) (io.ReadCloser, string, error) {
 	path := filepath.Join(s.Root, filepath.FromSlash(token))
+
+	// Defense in depth: filepath.Join cleans "..", so a malformed token can
+	// resolve outside Root. Reject anything that escapes the store root before
+	// touching the filesystem, so callers can't reintroduce a traversal bug.
+	rootAbs, err := filepath.Abs(s.Root)
+	if err != nil {
+		return nil, "", err
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if pathAbs != rootAbs && !strings.HasPrefix(pathAbs, rootAbs+string(os.PathSeparator)) {
+		return nil, "", fmt.Errorf("verification media token escapes store root: %q", token)
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", err
