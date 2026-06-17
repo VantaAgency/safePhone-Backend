@@ -39,6 +39,11 @@ func (c *Config) normalizeAndValidateStripe() error {
 	c.StripePricePlus = strings.TrimSpace(c.StripePricePlus)
 	c.StripePricePremium = strings.TrimSpace(c.StripePricePremium)
 	c.StripePriceTotal = strings.TrimSpace(c.StripePriceTotal)
+	c.StripePriceEssentielAnnual = strings.TrimSpace(c.StripePriceEssentielAnnual)
+	c.StripePriceEcranPlusAnnual = strings.TrimSpace(c.StripePriceEcranPlusAnnual)
+	c.StripePricePlusAnnual = strings.TrimSpace(c.StripePricePlusAnnual)
+	c.StripePricePremiumAnnual = strings.TrimSpace(c.StripePricePremiumAnnual)
+	c.StripePriceTotalAnnual = strings.TrimSpace(c.StripePriceTotalAnnual)
 
 	if !c.StripeConfigured() {
 		return nil

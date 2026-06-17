@@ -33,6 +33,9 @@ func isSafeHTTPURL(raw string) bool {
 // StripeCheckoutRequest starts a Stripe Checkout session for a US plan.
 type StripeCheckoutRequest struct {
 	PlanSlug string `json:"plan_slug" validate:"required,min=3,max=64"`
+	// Empty defaults to monthly in the service. Annual maps to the
+	// yearly-interval Stripe price for the plan.
+	BillingCycle string `json:"billing_cycle" validate:"omitempty,oneof=monthly annual"`
 }
 
 // RegisterUSDeviceRequest attaches a device to the user's pending US
@@ -92,7 +95,7 @@ func (h *StripeHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, appErr := h.svc.CreateCheckout(r.Context(), ac, req.PlanSlug)
+	result, appErr := h.svc.CreateCheckout(r.Context(), ac, req.PlanSlug, req.BillingCycle)
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return
