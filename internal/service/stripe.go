@@ -84,13 +84,25 @@ func (s *StripeService) CreateCheckout(
 	ctx context.Context,
 	ac *auth.AuthContext,
 	planSlug string,
+	billingCycle string,
 ) (*StripeCheckoutResult, *domain.AppError) {
 	if !s.Enabled() {
 		return nil, domain.ServiceUnavailable("Stripe payments are not configured")
 	}
 
-	priceID := s.cfg.StripePriceIDForPlan(planSlug)
+	// Default to monthly; the handler validates the value is "", monthly, or
+	// annual, so anything non-annual collapses to monthly here.
+	cycle := "monthly"
+	if billingCycle == "annual" {
+		cycle = "annual"
+	}
+
+	priceID := s.cfg.StripePriceIDForPlan(planSlug, cycle)
 	if priceID == "" {
+		// Either the plan is unknown, or its annual price isn't wired yet.
+		if cycle == "annual" {
+			return nil, domain.BadRequest("annual billing is not available for this plan")
+		}
 		return nil, domain.BadRequest("unknown plan")
 	}
 
@@ -131,11 +143,12 @@ func (s *StripeService) CreateCheckout(
 	}
 
 	metadata := map[string]string{
-		"safephone_user_id":   user.ID.String(),
-		"safephone_org_id":    user.OrgID.String(),
-		"safephone_plan_id":   plan.ID.String(),
-		"safephone_plan_slug": plan.Slug,
-		"safephone_market":    "US",
+		"safephone_user_id":       user.ID.String(),
+		"safephone_org_id":        user.OrgID.String(),
+		"safephone_plan_id":       plan.ID.String(),
+		"safephone_plan_slug":     plan.Slug,
+		"safephone_market":        "US",
+		"safephone_billing_cycle": cycle,
 	}
 
 	sess, err := s.client.CreateCheckoutSession(ctx, stripe.CreateCheckoutSessionParams{
@@ -146,7 +159,7 @@ func (s *StripeService) CreateCheckout(
 		// double-clicking "Subscribe" within the same second would otherwise
 		// share an idempotency key and accidentally hit Stripe's idempotency
 		// replay path (returning the first session even if intent changed).
-		IdempotencyKey: fmt.Sprintf("checkout-%s-%s-%d", user.ID, plan.ID, time.Now().UnixNano()),
+		IdempotencyKey: fmt.Sprintf("checkout-%s-%s-%s-%d", user.ID, plan.ID, cycle, time.Now().UnixNano()),
 	})
 	if err != nil {
 		slog.Error("stripe checkout create failed", "error", err, "user_id", user.ID, "plan", plan.Slug)
@@ -357,11 +370,18 @@ func (s *StripeService) handleCheckoutSessionCompleted(ctx context.Context, even
 		return nil
 	}
 
+	// The cycle is carried in the checkout metadata we set in CreateCheckout.
+	// Default to monthly for older sessions / missing metadata.
+	billingCycle := meta["safephone_billing_cycle"]
+	if billingCycle != "annual" {
+		billingCycle = "monthly"
+	}
+
 	_, err := s.subs.CreateStripeSubscription(ctx, repository.CreateStripeSubscriptionParams{
 		OrgID:                   orgID,
 		UserID:                  userID,
 		PlanID:                  planID,
-		BillingCycle:            "monthly",
+		BillingCycle:            billingCycle,
 		Status:                  domain.SubscriptionStatusPending,
 		StripeSubscriptionID:    sess.Subscription.ID,
 		StripeCheckoutSessionID: sess.ID,

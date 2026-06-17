@@ -49,6 +49,13 @@ type Config struct {
 	StripePricePlus         string `env:"STRIPE_PRICE_PLUS"`
 	StripePricePremium      string `env:"STRIPE_PRICE_PREMIUM"`
 	StripePriceTotal        string `env:"STRIPE_PRICE_TOTAL"`
+	// Annual (yearly-interval) Stripe price IDs, one per US plan. Optional —
+	// when unset, that plan simply can't be checked out on the annual cycle.
+	StripePriceEssentielAnnual string `env:"STRIPE_PRICE_ESSENTIEL_ANNUAL"`
+	StripePriceEcranPlusAnnual string `env:"STRIPE_PRICE_ECRAN_PLUS_ANNUAL"`
+	StripePricePlusAnnual      string `env:"STRIPE_PRICE_PLUS_ANNUAL"`
+	StripePricePremiumAnnual   string `env:"STRIPE_PRICE_PREMIUM_ANNUAL"`
+	StripePriceTotalAnnual     string `env:"STRIPE_PRICE_TOTAL_ANNUAL"`
 	StripeSuccessPath       string `env:"STRIPE_SUCCESS_PATH" envDefault:"/us/checkout/success?session_id={CHECKOUT_SESSION_ID}"`
 	StripeCancelPath        string `env:"STRIPE_CANCEL_PATH" envDefault:"/us/checkout/cancel"`
 
@@ -87,19 +94,37 @@ func (c *Config) StripeEnabled() bool {
 	return c.StripeSecretKey != "" && c.StripeWebhookSecret != ""
 }
 
-// StripePriceIDForPlan returns the configured Stripe price ID for the
-// given US plan slug. Empty string means the plan isn't wired for Stripe.
-func (c *Config) StripePriceIDForPlan(planSlug string) string {
+// StripePriceIDForPlan returns the configured Stripe price ID for the given
+// US plan slug and billing cycle ("monthly" or "annual"). Any cycle other
+// than "annual" is treated as monthly. Empty string means that plan/cycle
+// isn't wired for Stripe.
+func (c *Config) StripePriceIDForPlan(planSlug, billingCycle string) string {
+	annual := billingCycle == "annual"
 	switch planSlug {
 	case "us_essentiel":
+		if annual {
+			return c.StripePriceEssentielAnnual
+		}
 		return c.StripePriceEssentiel
 	case "us_ecran_plus":
+		if annual {
+			return c.StripePriceEcranPlusAnnual
+		}
 		return c.StripePriceEcranPlus
 	case "us_plus":
+		if annual {
+			return c.StripePricePlusAnnual
+		}
 		return c.StripePricePlus
 	case "us_premium":
+		if annual {
+			return c.StripePricePremiumAnnual
+		}
 		return c.StripePricePremium
 	case "us_total":
+		if annual {
+			return c.StripePriceTotalAnnual
+		}
 		return c.StripePriceTotal
 	default:
 		return ""
