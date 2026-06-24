@@ -27,6 +27,48 @@ services:
       timeout: 5s
       retries: 5
 
+  # S3-compatible object store for verification + commercial-activity media.
+  # Mirrors the self-hosted MinIO we run in prod so the backend's S3 path
+  # (internal/storage/verification_media.go) is exercised locally too.
+  # API on :9000, web console on :9001 (http://localhost:9001).
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-safephone}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-safephone-secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # One-shot: create the media bucket on first boot, then exit. Bucket stays
+  # private — the backend proxies every read through its own auth, so MinIO
+  # is never exposed publicly.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_BUCKET: ${S3_BUCKET:-safephone-media}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-safephone}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-safephone-secret}
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 \"$$S3_ACCESS_KEY_ID\" \"$$S3_SECRET_ACCESS_KEY\" &&
+      mc mb --ignore-existing local/\"$$S3_BUCKET\" &&
+      echo 'MinIO bucket ready: '\"$$S3_BUCKET\"
+      "
+    restart: "no"
+
 volumes:
   pgdata:
   redisdata:
+  miniodata:
