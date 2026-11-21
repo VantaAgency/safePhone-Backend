@@ -138,7 +138,7 @@ func (r *DeviceRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 		SELECT id, org_id, user_id, device_type, brand, model, metadata, imei, status, market, created_at, updated_at, deleted_at
 		FROM devices
 		WHERE org_id = $1 AND user_id = $2 AND deleted_at IS NULL
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, userID, limit, offset)
 	if err != nil {
@@ -324,7 +324,7 @@ func (r *DeviceRepository) ListPendingVerifications(
 		  AND verification_status = 'pending'
 		  AND deleted_at IS NULL
 		  AND ($2 = '' OR market = $2)
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, market, limit, offset)
 	if err != nil {
@@ -381,7 +381,7 @@ func (r *DeviceRepository) ListActiveWithVerification(
 		  AND status IN ('active', 'suspended')
 		  AND deleted_at IS NULL
 		  AND COALESCE(array_length(verification_photos, 1), 0) > 0
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $2 OFFSET $3
 	`, orgID, limit, offset)
 	if err != nil {

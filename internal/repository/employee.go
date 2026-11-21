@@ -323,7 +323,7 @@ func (r *EmployeeRepository) ListClients(ctx context.Context, orgID uuid.UUID, s
 			OR lower(u.email) LIKE '%' || lower($2) || '%'
 			OR lower(COALESCE(u.phone, '')) LIKE '%' || lower($2) || '%'
 		  )
-		ORDER BY u.created_at DESC
+		ORDER BY u.created_at DESC, u.id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, strings.TrimSpace(search), limit, offset)
 	if err != nil {
@@ -706,7 +706,10 @@ func (r *EmployeeRepository) ListTasks(ctx context.Context, orgID uuid.UUID, lim
 		if left != right {
 			return left < right
 		}
-		return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt)
+		if !tasks[i].UpdatedAt.Equal(tasks[j].UpdatedAt) {
+			return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt)
+		}
+		return tasks[i].ID < tasks[j].ID
 	})
 
 	if offset >= len(tasks) {
@@ -794,7 +797,7 @@ func (r *EmployeeRepository) ListNotes(ctx context.Context, orgID uuid.UUID, ent
 		WHERE n.org_id = $1
 		  AND n.entity_type = $2
 		  AND n.entity_id = $3
-		ORDER BY n.created_at DESC
+		ORDER BY n.created_at DESC, n.id DESC
 		LIMIT $4 OFFSET $5
 	`, orgID, entityType, entityID, limit, offset)
 	if err != nil {
@@ -1002,7 +1005,7 @@ func (r *EmployeeRepository) listPaymentFollowUpsBase(ctx context.Context, orgID
 	limitIdx := len(args) - 1
 	offsetIdx := len(args)
 	query.WriteString(fmt.Sprintf(`
-		ORDER BY COALESCE(p.created_at, ls.created_at) DESC, ls.created_at DESC
+		ORDER BY COALESCE(p.created_at, ls.created_at) DESC, ls.created_at DESC, ls.id DESC
 		LIMIT $%d OFFSET $%d
 	`, limitIdx, offsetIdx))
 
@@ -1127,7 +1130,7 @@ func (r *EmployeeRepository) listClaimDetailsBase(ctx context.Context, orgID uui
 	limitIdx := len(args) - 1
 	offsetIdx := len(args)
 	query.WriteString(fmt.Sprintf(`
-		ORDER BY c.filed_at DESC
+		ORDER BY c.filed_at DESC, c.id DESC
 		LIMIT $%d OFFSET $%d
 	`, limitIdx, offsetIdx))
 
@@ -1231,7 +1234,7 @@ func (r *EmployeeRepository) listRepairDetailsBase(ctx context.Context, orgID uu
 	limitIdx := len(args) - 1
 	offsetIdx := len(args)
 	query.WriteString(fmt.Sprintf(`
-		ORDER BY rb.created_at DESC
+		ORDER BY rb.created_at DESC, rb.id DESC
 		LIMIT $%d OFFSET $%d
 	`, limitIdx, offsetIdx))
 

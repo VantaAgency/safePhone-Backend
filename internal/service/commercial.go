@@ -267,8 +267,8 @@ func (s *CommercialService) AdminListCommercials(ctx context.Context, ac *auth.A
 	return items, nil
 }
 
-func (s *CommercialService) AdminGetCommercial(ctx context.Context, ac *auth.AuthContext, commercialID uuid.UUID) (*domain.AdminCommercialDetail, *domain.AppError) {
-	item, err := s.repo.GetAdminCommercial(ctx, ac.OrgID, commercialID)
+func (s *CommercialService) AdminGetCommercial(ctx context.Context, ac *auth.AuthContext, commercialID uuid.UUID, pagination domain.CommercialDetailPagination) (*domain.AdminCommercialDetail, *domain.AppError) {
+	item, err := s.repo.GetAdminCommercial(ctx, ac.OrgID, commercialID, pagination)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}

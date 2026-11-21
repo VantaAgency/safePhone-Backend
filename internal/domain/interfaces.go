@@ -87,6 +87,13 @@ type AdminRepository interface {
 }
 
 // CommercialRepository provides commercial acquisition workflow persistence.
+type CommercialDetailPagination struct {
+	Limit             int
+	PartnersOffset    int
+	ReportsOffset     int
+	CommissionsOffset int
+}
+
 type CommercialRepository interface {
 	CreateProfile(ctx context.Context, profile *CommercialProfile) error
 	GetProfileByUser(ctx context.Context, orgID, userID uuid.UUID) (*CommercialProfile, error)
@@ -98,7 +105,7 @@ type CommercialRepository interface {
 	CreateActivityReport(ctx context.Context, report *CommercialActivityReport) error
 	GetActivityReport(ctx context.Context, orgID, reportID uuid.UUID) (*CommercialActivityReport, error)
 	ListAdminCommercials(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]AdminCommercialListItem, error)
-	GetAdminCommercial(ctx context.Context, orgID, commercialID uuid.UUID) (*AdminCommercialDetail, error)
+	GetAdminCommercial(ctx context.Context, orgID, commercialID uuid.UUID, pagination CommercialDetailPagination) (*AdminCommercialDetail, error)
 	UpdateStatus(ctx context.Context, orgID, commercialID uuid.UUID, status string) (*CommercialProfile, error)
 	UpdateCommissionPercentage(ctx context.Context, orgID, commercialID uuid.UUID, percentage float64) (*CommercialProfile, error)
 	CreateCommissionForFirstPartnerPayment(ctx context.Context, commission *CommercialCommission) error

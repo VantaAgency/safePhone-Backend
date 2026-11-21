@@ -131,7 +131,7 @@ func (r *RepairRepository) ListByOrgAndUser(ctx context.Context, orgID, userID u
 		SELECT `+repairColumns+`
 		FROM repair_bookings
 		WHERE org_id = $1 AND user_id = $2
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, userID, limit, offset)
 	if err != nil {
@@ -167,7 +167,7 @@ func (r *RepairRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, statu
 			OR lower(repair_type) LIKE '%' || lower($3) || '%'
 		  )
 		  AND ($4 = '' OR market = $4)
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $5 OFFSET $6
 	`, orgID, statusFilter, strings.TrimSpace(search), market, limit, offset)
 	if err != nil {

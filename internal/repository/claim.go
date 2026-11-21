@@ -67,7 +67,7 @@ func (r *ClaimRepository) ListByOrgAndUser(ctx context.Context, orgID, userID uu
 		SELECT `+claimColumns+`
 		FROM claims
 		WHERE org_id = $1 AND user_id = $2
-		ORDER BY filed_at DESC
+		ORDER BY filed_at DESC, id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, userID, limit, offset)
 	if err != nil {
@@ -94,7 +94,7 @@ func (r *ClaimRepository) ListByOrg(ctx context.Context, orgID uuid.UUID, status
 		WHERE org_id = $1
 		  AND ($2 = '' OR status = $2)
 		  AND ($3 = '' OR market = $3)
-		ORDER BY filed_at DESC
+		ORDER BY filed_at DESC, id DESC
 		LIMIT $4 OFFSET $5
 	`, orgID, statusFilter, market, limit, offset)
 	if err != nil {

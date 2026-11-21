@@ -287,7 +287,7 @@ func (r *PartnerRepository) ListClients(ctx context.Context, partnerID uuid.UUID
 		FROM partner_clients pc
 		LEFT JOIN partner_commissions comm ON comm.partner_client_id = pc.id
 		WHERE pc.partner_id = $1
-		ORDER BY pc.invited_at DESC
+		ORDER BY pc.invited_at DESC, pc.id DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {
@@ -577,7 +577,7 @@ func (r *PartnerRepository) ListSales(ctx context.Context, partnerID uuid.UUID, 
 		LEFT JOIN partner_clients pc ON pc.id = comm.partner_client_id
 		LEFT JOIN plans pl ON pl.id = comm.plan_id
 		WHERE comm.partner_id = $1
-		ORDER BY COALESCE(pay.paid_at, comm.created_at) DESC, comm.created_at DESC
+		ORDER BY COALESCE(pay.paid_at, comm.created_at) DESC, comm.created_at DESC, comm.id DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {
@@ -674,7 +674,7 @@ func (r *PartnerRepository) ListPayouts(ctx context.Context, partnerID uuid.UUID
 		SELECT id::text, commission_amount_xof, COALESCE(payout_method, ''), status, paid_at
 		FROM partner_commissions
 		WHERE partner_id = $1 AND status = 'paid' AND paid_at IS NOT NULL
-		ORDER BY paid_at DESC
+		ORDER BY paid_at DESC, id DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {
@@ -770,7 +770,7 @@ func (r *PartnerRepository) ListAll(ctx context.Context, orgID uuid.UUID, limit,
 			WHERE comm.partner_id = p.id
 		) AS commission_stats ON TRUE
 		WHERE p.org_id = $1
-		ORDER BY p.created_at DESC
+		ORDER BY p.created_at DESC, p.id DESC
 		LIMIT $2 OFFSET $3
 	`, orgID, limit, offset)
 	if err != nil {
@@ -830,7 +830,7 @@ func (r *PartnerRepository) ListAdminCommissions(ctx context.Context, partnerID 
 		LEFT JOIN users u ON u.id = comm.client_user_id
 		LEFT JOIN plans pl ON pl.id = comm.plan_id
 		WHERE comm.partner_id = $1
-		ORDER BY comm.created_at DESC
+		ORDER BY comm.created_at DESC, comm.id DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {
@@ -915,7 +915,7 @@ func (r *PartnerRepository) ListAdminReferrals(ctx context.Context, partnerID uu
 		) pay ON TRUE
 		LEFT JOIN partner_commissions comm ON comm.partner_client_id = pc.id
 		WHERE pc.partner_id = $1
-		ORDER BY COALESCE(pc.attributed_at, pc.invited_at, pc.created_at) DESC
+		ORDER BY COALESCE(pc.attributed_at, pc.invited_at, pc.created_at) DESC, pc.id DESC
 		LIMIT $2 OFFSET $3
 	`, partnerID, limit, offset)
 	if err != nil {

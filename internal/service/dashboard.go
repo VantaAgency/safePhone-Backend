@@ -33,8 +33,9 @@ func NewDashboardService(
 func (s *DashboardService) GetMemberSummary(
 	ctx context.Context,
 	ac *auth.AuthContext,
+	subscriptionLimit, subscriptionOffset int,
 ) (*domain.MemberDashboardSummary, *domain.AppError) {
-	summary, err := s.repo.GetMemberSummary(ctx, ac.OrgID, ac.UserID)
+	summary, err := s.repo.GetMemberSummary(ctx, ac.OrgID, ac.UserID, subscriptionLimit, subscriptionOffset)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
