@@ -122,6 +122,9 @@ func (c *Client) CreateCheckoutSession(
 		Customer:   stripego.String(p.CustomerID),
 		SuccessURL: stripego.String(c.successURL),
 		CancelURL:  stripego.String(c.cancelURL),
+		AdaptivePricing: &stripego.CheckoutSessionAdaptivePricingParams{
+			Enabled: stripego.Bool(false),
+		},
 		LineItems: []*stripego.CheckoutSessionLineItemParams{{
 			Price:    stripego.String(p.PriceID),
 			Quantity: stripego.Int64(1),

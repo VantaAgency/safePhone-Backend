@@ -157,7 +157,7 @@ func main() {
 			"api_key_present", cfg.DexpayAPIKey != "",
 			"api_secret_present", cfg.DexpayAPISecret != "",
 			"backend_public_url", cfg.BackendPublicURL,
-			"frontend_url", cfg.FrontendURL,
+			"frontend_url", cfg.SNFrontendURL,
 			"credential_mode", cfg.DexpayCredentialMode(),
 		)
 	} else {
@@ -175,8 +175,8 @@ func main() {
 		stripeClient, err = stripepkg.NewClient(stripepkg.Config{
 			SecretKey:     cfg.StripeSecretKey,
 			WebhookSecret: cfg.StripeWebhookSecret,
-			SuccessURL:    cfg.FrontendURL + cfg.StripeSuccessPath,
-			CancelURL:     cfg.FrontendURL + cfg.StripeCancelPath,
+			SuccessURL:    cfg.USFrontendURL + cfg.StripeSuccessPath,
+			CancelURL:     cfg.USFrontendURL + cfg.StripeCancelPath,
 		})
 		if err != nil {
 			slog.Error("failed to initialize Stripe client", "error", err)
@@ -199,7 +199,7 @@ func main() {
 	deviceSvc := service.NewDeviceService(deviceRepo, subRepo, planRepo, subDevicesRepo)
 	subSvc := service.NewSubscriptionService(subRepo, planRepo, cfg.IsDevelopment())
 	claimSvc := service.NewClaimService(claimRepo, deviceRepo, subRepo, planRepo)
-	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, commercialRepo, webhookEventRepo, dexpayClient, pool, cfg.FrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
+	paymentSvc := service.NewPaymentService(paymentRepo, subRepo, planRepo, userRepo, deviceRepo, partnerRepo, commercialRepo, webhookEventRepo, dexpayClient, pool, cfg.SNFrontendURL, cfg.BackendPublicURL, cfg.IsDevelopment())
 	contactSvc := service.NewContactService(contactRepo)
 	partnerAppSvc := service.NewPartnerApplicationService(partnerAppRepo, userRepo, partnerRepo, commercialRepo, pool)
 	partnerSvc := service.NewPartnerService(partnerRepo, userRepo, paymentRepo, cfg.FrontendURL)

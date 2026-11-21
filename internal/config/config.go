@@ -61,6 +61,8 @@ type Config struct {
 
 	// Public callback URLs
 	FrontendURL      string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
+	SNFrontendURL    string `env:"SN_FRONTEND_URL"`
+	USFrontendURL    string `env:"US_FRONTEND_URL"`
 	BackendPublicURL string `env:"BACKEND_PUBLIC_URL"`
 
 	// HMAC key for short-lived signed verification-media URLs (so an admin's
@@ -163,6 +165,9 @@ func Load() (*Config, error) {
 	}
 	if err := cfg.normalizeAndValidateDexpay(); err != nil {
 		return nil, fmt.Errorf("validating DEXPAY config: %w", err)
+	}
+	if err := cfg.normalizeAndValidatePaymentOrigins(); err != nil {
+		return nil, fmt.Errorf("validating payment return origins: %w", err)
 	}
 	if err := cfg.normalizeAndValidateStripe(); err != nil {
 		return nil, fmt.Errorf("validating Stripe config: %w", err)

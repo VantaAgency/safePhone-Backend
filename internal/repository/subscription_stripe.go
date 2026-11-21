@@ -42,12 +42,16 @@ func (r *SubscriptionRepository) CreateStripeSubscription(
 			stripe_subscription_id, stripe_checkout_session_id,
 			current_period_start, current_period_end
 		)
-		VALUES ($1, $2, $3, $4, $5, 'US', $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, 'US', $6, NULLIF($7, ''), $8, $9)
 		ON CONFLICT (stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL
 		DO UPDATE SET
-			status = EXCLUDED.status,
-			current_period_start = EXCLUDED.current_period_start,
-			current_period_end = EXCLUDED.current_period_end,
+			status = CASE
+				WHEN subscriptions.status = 'pending' AND EXCLUDED.status = 'pending_verification' THEN EXCLUDED.status
+				ELSE subscriptions.status
+			END,
+			stripe_checkout_session_id = COALESCE(EXCLUDED.stripe_checkout_session_id, subscriptions.stripe_checkout_session_id),
+			current_period_start = COALESCE(EXCLUDED.current_period_start, subscriptions.current_period_start),
+			current_period_end = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
 			updated_at = now()
 		RETURNING id, org_id, user_id, plan_id, status, billing_cycle,
 			current_period_start, current_period_end, cancelled_at,
@@ -80,7 +84,11 @@ func (r *SubscriptionRepository) UpdateStripeSubscriptionState(
 
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE subscriptions SET
-			status = $2,
+			status = CASE
+				WHEN status = 'cancelled' THEN status
+				WHEN $2 = 'pending_verification' AND activated_at IS NOT NULL THEN 'active'
+				ELSE $2
+			END,
 			current_period_start = COALESCE($3, current_period_start),
 			current_period_end = COALESCE($4, current_period_end),
 			cancelled_at = COALESCE($5, cancelled_at),
@@ -115,14 +123,7 @@ func (r *SubscriptionRepository) FindUSPendingSubscriptionWithoutDevice(
 		WHERE user_id = $1
 		  AND market = 'US'
 		  AND device_id IS NULL
-		  -- 'pending_verification' is included on purpose: the Stripe
-		  -- invoice.paid webhook advances a fresh US sub pending ->
-		  -- pending_verification within seconds of checkout, which races
-		  -- ahead of the user reaching /us/register-device. The device_id IS
-		  -- NULL guard already restricts this to subs that still need a
-		  -- device, so matching pending_verification here just lets the
-		  -- registration find the paid sub regardless of webhook timing.
-		  AND status IN ('pending', 'pending_verification', 'active', 'past_due')
+		  AND status IN ('pending_verification', 'active')
 		ORDER BY created_at DESC
 		LIMIT 1
 	`, userID).Scan(

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -110,8 +111,8 @@ func (s *StripeService) CreateCheckout(
 	if err != nil {
 		return nil, domain.Internal("failed to load plan")
 	}
-	if plan == nil {
-		return nil, domain.BadRequest("plan not found")
+	if plan == nil || plan.Market != domain.MarketUS || plan.Currency != domain.CurrencyUSD {
+		return nil, domain.BadRequest("Stripe requires a US plan in USD")
 	}
 
 	user, err := s.users.GetByID(ctx, ac.UserID)
@@ -320,27 +321,27 @@ func (s *StripeService) HandleEvent(ctx context.Context, event stripego.Event, r
 		return nil
 	}
 
+	appErr := s.processEvent(ctx, event)
+	if appErr != nil && appErr.HTTPStatus >= http.StatusInternalServerError {
+		if err := s.webhookEvents.Release(context.WithoutCancel(ctx), idempotencyKey); err != nil {
+			slog.Error("failed to release failed Stripe event", "event_id", event.ID, "error", err)
+		}
+	}
+	return appErr
+}
+
+func (s *StripeService) processEvent(ctx context.Context, event stripego.Event) *domain.AppError {
 	switch event.Type {
 	case "checkout.session.completed":
-		if appErr := s.handleCheckoutSessionCompleted(ctx, event); appErr != nil {
-			return appErr
-		}
+		return s.handleCheckoutSessionCompleted(ctx, event)
 	case "invoice.paid", "invoice.payment_succeeded":
-		if appErr := s.handleInvoicePaid(ctx, event); appErr != nil {
-			return appErr
-		}
+		return s.handleInvoicePaid(ctx, event)
 	case "invoice.payment_failed":
-		if appErr := s.handleInvoicePaymentFailed(ctx, event); appErr != nil {
-			return appErr
-		}
+		return s.handleInvoicePaymentFailed(ctx, event)
 	case "customer.subscription.deleted":
-		if appErr := s.handleSubscriptionDeleted(ctx, event); appErr != nil {
-			return appErr
-		}
+		return s.handleSubscriptionDeleted(ctx, event)
 	case "customer.subscription.created", "customer.subscription.updated":
-		if appErr := s.handleSubscriptionUpsert(ctx, event); appErr != nil {
-			return appErr
-		}
+		return s.handleSubscriptionUpsert(ctx, event)
 	case "charge.dispute.created":
 		slog.Warn("stripe charge dispute opened", "event_id", event.ID)
 	default:
@@ -357,40 +358,53 @@ func (s *StripeService) handleCheckoutSessionCompleted(ctx context.Context, even
 		return domain.BadRequest("invalid checkout.session payload")
 	}
 
-	meta := sess.Metadata
-	userID, ok1 := parseUUIDMeta(meta, "safephone_user_id")
-	orgID, ok2 := parseUUIDMeta(meta, "safephone_org_id")
-	planID, ok3 := parseUUIDMeta(meta, "safephone_plan_id")
-	if !ok1 || !ok2 || !ok3 {
-		slog.Error("stripe checkout.session.completed missing metadata", "session_id", sess.ID)
-		return domain.BadRequest("missing SafePhone metadata on checkout session")
-	}
 	if sess.Subscription == nil || sess.Subscription.ID == "" {
-		slog.Warn("stripe checkout.session.completed has no subscription", "session_id", sess.ID)
 		return nil
 	}
-
-	// The cycle is carried in the checkout metadata we set in CreateCheckout.
-	// Default to monthly for older sessions / missing metadata.
-	billingCycle := meta["safephone_billing_cycle"]
-	if billingCycle != "annual" {
-		billingCycle = "monthly"
+	status := domain.SubscriptionStatusPending
+	if sess.PaymentStatus == stripego.CheckoutSessionPaymentStatusPaid ||
+		sess.PaymentStatus == stripego.CheckoutSessionPaymentStatusNoPaymentRequired {
+		status = domain.SubscriptionStatusPendingVerification
 	}
+	_, appErr := s.saveStripeSubscription(ctx, sess.Metadata, sess.Subscription.ID, sess.ID, status, nil, nil)
+	return appErr
+}
 
-	_, err := s.subs.CreateStripeSubscription(ctx, repository.CreateStripeSubscriptionParams{
-		OrgID:                   orgID,
-		UserID:                  userID,
-		PlanID:                  planID,
-		BillingCycle:            billingCycle,
-		Status:                  domain.SubscriptionStatusPending,
-		StripeSubscriptionID:    sess.Subscription.ID,
-		StripeCheckoutSessionID: sess.ID,
+// Stripe can deliver invoice and subscription events before checkout completes.
+func (s *StripeService) saveStripeSubscription(
+	ctx context.Context,
+	meta map[string]string,
+	subscriptionID, checkoutID string,
+	status domain.SubscriptionStatus,
+	start, end *time.Time,
+) (bool, *domain.AppError) {
+	userID, hasUser := parseUUIDMeta(meta, "safephone_user_id")
+	orgID, hasOrg := parseUUIDMeta(meta, "safephone_org_id")
+	planID, hasPlan := parseUUIDMeta(meta, "safephone_plan_id")
+	if !hasUser || !hasOrg || !hasPlan {
+		return false, nil
+	}
+	plan, err := s.plans.GetByID(ctx, planID)
+	if err != nil {
+		return false, domain.InternalError(err)
+	}
+	if plan == nil || plan.Market != domain.MarketUS || plan.Currency != domain.CurrencyUSD {
+		return false, nil
+	}
+	cycle := meta["safephone_billing_cycle"]
+	if cycle != "annual" {
+		cycle = "monthly"
+	}
+	_, err = s.subs.CreateStripeSubscription(ctx, repository.CreateStripeSubscriptionParams{
+		OrgID: orgID, UserID: userID, PlanID: planID, BillingCycle: cycle, Status: status,
+		StripeSubscriptionID: subscriptionID, StripeCheckoutSessionID: checkoutID,
+		CurrentPeriodStart: start, CurrentPeriodEnd: end,
 	})
 	if err != nil {
-		slog.Error("stripe create subscription row failed", "error", err, "session_id", sess.ID)
-		return domain.Internal("failed to record Stripe subscription")
+		slog.Error("stripe subscription insert failed", "stripe_sub", subscriptionID, "error", err)
+		return false, domain.Internal("failed to record Stripe subscription")
 	}
-	return nil
+	return true, nil
 }
 
 func (s *StripeService) handleInvoicePaid(ctx context.Context, event stripego.Event) *domain.AppError {
@@ -420,29 +434,27 @@ func (s *StripeService) handleInvoicePaid(ctx context.Context, event stripego.Ev
 		nil, nil, nil,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		slog.Warn("stripe invoice.paid: no matching subscription yet", "stripe_sub", subID)
-		return nil
-	}
-	if err != nil {
+		if inv.Parent == nil || inv.Parent.SubscriptionDetails == nil {
+			return nil
+		}
+		saved, appErr := s.saveStripeSubscription(ctx, inv.Parent.SubscriptionDetails.Metadata,
+			subID, "", domain.SubscriptionStatusPendingVerification, nil, nil)
+		if !saved {
+			return appErr
+		}
+		if err := s.subs.UpdateStripeSubscriptionState(ctx, subID, domain.SubscriptionStatusPendingVerification, nil, nil, nil); err != nil {
+			return domain.InternalError(err)
+		}
+	} else if err != nil {
 		slog.Error("stripe invoice.paid update failed", "error", err, "stripe_sub", subID)
-		return domain.Internal("failed to activate subscription")
+		return domain.Internal("failed to confirm subscription payment")
 	}
 
 	// Record the Stripe payment in our `payments` table so the user / admin
 	// dashboards see this transaction alongside DEXPAY ones. Idempotency key
 	// is "stripe:invoice:<inv.ID>" — Stripe retries the same invoice event
 	// on transient failures, and we don't want duplicate rows.
-	if appErr := s.recordStripePayment(ctx, &inv, subID); appErr != nil {
-		// Logged inside; don't bubble — the subscription is already active,
-		// the payment record is a secondary book-keeping concern. Stripe
-		// will retry the webhook on a 5xx response and we'd risk
-		// re-activating the sub.
-		slog.Error("stripe invoice.paid: payment row not recorded",
-			"stripe_sub", subID,
-			"invoice_id", inv.ID,
-			"error", appErr.Message)
-	}
-	return nil
+	return s.recordStripePayment(ctx, &inv, subID)
 }
 
 // recordStripePayment inserts a Payment row for a paid Stripe invoice.
@@ -547,8 +559,8 @@ func (s *StripeService) handleSubscriptionUpsert(ctx context.Context, event stri
 
 	err := s.subs.UpdateStripeSubscriptionState(ctx, sub.ID, status, start, end, nil)
 	if errors.Is(err, pgx.ErrNoRows) {
-		slog.Warn("stripe subscription upsert: no matching row yet", "stripe_sub", sub.ID)
-		return nil
+		_, appErr := s.saveStripeSubscription(ctx, sub.Metadata, sub.ID, "", status, start, end)
+		return appErr
 	}
 	if err != nil {
 		slog.Error("stripe subscription upsert failed", "error", err, "stripe_sub", sub.ID)
