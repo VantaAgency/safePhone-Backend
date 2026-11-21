@@ -23,7 +23,7 @@ func (h *DashboardHandler) MemberSummary(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	summary, appErr := h.svc.GetMemberSummary(r.Context(), ac)
+	summary, appErr := h.svc.GetMemberSummary(r.Context(), ac, parseLimit(r, 5, 100), parseOffset(r))
 	if appErr != nil {
 		WriteError(w, r, appErr)
 		return

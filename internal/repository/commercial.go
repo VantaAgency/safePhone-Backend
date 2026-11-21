@@ -109,9 +109,13 @@ func (r *CommercialRepository) ListPartners(ctx context.Context, orgID, commerci
 			p.created_at
 		FROM partners p
 		JOIN users u ON u.id = p.user_id
-		LEFT JOIN partner_applications pa
-		  ON pa.org_id = p.org_id
-		 AND pa.user_id = p.user_id
+		LEFT JOIN LATERAL (
+			SELECT status, reviewed_at
+			FROM partner_applications
+			WHERE org_id = p.org_id AND user_id = p.user_id
+			ORDER BY created_at DESC, id DESC
+			LIMIT 1
+		) pa ON TRUE
 		LEFT JOIN LATERAL (
 			SELECT
 				COUNT(*)::int AS clients_count,
@@ -131,7 +135,7 @@ func (r *CommercialRepository) ListPartners(ctx context.Context, orgID, commerci
 			LIMIT 1
 		) AS first_payment ON TRUE
 		WHERE p.org_id = $1 AND p.commercial_id = $2
-		ORDER BY p.created_at DESC
+		ORDER BY p.created_at DESC, p.id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, commercialID, limit, offset)
 	if err != nil {
@@ -179,7 +183,7 @@ func (r *CommercialRepository) ListCommissions(ctx context.Context, orgID, comme
 
 	rows, err := r.pool.Query(ctx, commercialCommissionSelect(`
 		WHERE cc.org_id = $1 AND cc.commercial_id = $2
-		ORDER BY cc.created_at DESC
+		ORDER BY cc.created_at DESC, cc.id DESC
 		LIMIT $3 OFFSET $4
 	`), orgID, commercialID, limit, offset)
 	if err != nil {
@@ -229,7 +233,7 @@ func (r *CommercialRepository) ListActivityReports(ctx context.Context, orgID uu
 		query += " AND car.partner_id = $" + itoa(nextArg)
 		args = append(args, *partnerID)
 	}
-	query += " ORDER BY car.created_at DESC LIMIT $2 OFFSET $3"
+	query += " ORDER BY car.created_at DESC, car.id DESC LIMIT $2 OFFSET $3"
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -325,7 +329,7 @@ func (r *CommercialRepository) ListAdminCommercials(ctx context.Context, orgID u
 
 	rows, err := r.pool.Query(ctx, adminCommercialSelect(`
 		WHERE cp.org_id = $1
-		ORDER BY cp.created_at DESC
+		ORDER BY cp.created_at DESC, cp.id DESC
 		LIMIT $2 OFFSET $3
 	`), orgID, limit, offset)
 	if err != nil {
@@ -347,7 +351,7 @@ func (r *CommercialRepository) ListAdminCommercials(ctx context.Context, orgID u
 	return items, rows.Err()
 }
 
-func (r *CommercialRepository) GetAdminCommercial(ctx context.Context, orgID, commercialID uuid.UUID) (*domain.AdminCommercialDetail, error) {
+func (r *CommercialRepository) GetAdminCommercial(ctx context.Context, orgID, commercialID uuid.UUID, pagination domain.CommercialDetailPagination) (*domain.AdminCommercialDetail, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -362,15 +366,15 @@ func (r *CommercialRepository) GetAdminCommercial(ctx context.Context, orgID, co
 		return nil, err
 	}
 
-	partners, err := r.ListPartners(ctx, orgID, commercialID, 100, 0)
+	partners, err := r.ListPartners(ctx, orgID, commercialID, pagination.Limit, pagination.PartnersOffset)
 	if err != nil {
 		return nil, err
 	}
-	reports, err := r.ListActivityReports(ctx, orgID, &commercialID, nil, 100, 0)
+	reports, err := r.ListActivityReports(ctx, orgID, &commercialID, nil, pagination.Limit, pagination.ReportsOffset)
 	if err != nil {
 		return nil, err
 	}
-	commissions, err := r.ListCommissions(ctx, orgID, commercialID, 100, 0)
+	commissions, err := r.ListCommissions(ctx, orgID, commercialID, pagination.Limit, pagination.CommissionsOffset)
 	if err != nil {
 		return nil, err
 	}

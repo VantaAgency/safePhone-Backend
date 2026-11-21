@@ -22,6 +22,7 @@ func NewDashboardRepository(pool *pgxpool.Pool) *DashboardRepository {
 func (r *DashboardRepository) GetMemberSummary(
 	ctx context.Context,
 	orgID, userID uuid.UUID,
+	subscriptionLimit, subscriptionOffset int,
 ) (*domain.MemberDashboardSummary, error) {
 	if err := expireEndedSubscriptions(ctx, r.pool, r.timeout, &orgID, &userID, nil, nil); err != nil {
 		return nil, err
@@ -148,9 +149,9 @@ func (r *DashboardRepository) GetMemberSummary(
 		WHERE s.org_id = $1
 		  AND s.user_id = $2
 		  AND s.status = 'active'
-		ORDER BY COALESCE(s.current_period_end, s.created_at) ASC NULLS LAST, s.created_at DESC
-		LIMIT 5
-	`, orgID, userID)
+		ORDER BY COALESCE(s.current_period_end, s.created_at) ASC NULLS LAST, s.created_at DESC, s.id DESC
+		LIMIT $3 OFFSET $4
+	`, orgID, userID, subscriptionLimit, subscriptionOffset)
 	if err != nil {
 		return nil, err
 	}

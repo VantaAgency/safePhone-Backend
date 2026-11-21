@@ -130,7 +130,7 @@ func (r *PartnerApplicationRepository) ListByOrg(ctx context.Context, orgID uuid
 		args = append(args, *status)
 	}
 
-	query += " ORDER BY pa.created_at DESC LIMIT $2 OFFSET $3"
+	query += " ORDER BY pa.created_at DESC, pa.id DESC LIMIT $2 OFFSET $3"
 	// Insert limit/offset at positions $2 and $3
 	// Need to rewrite args ordering
 	if status != nil {
@@ -147,7 +147,7 @@ func (r *PartnerApplicationRepository) ListByOrg(ctx context.Context, orgID uuid
 			LEFT JOIN commercial_profiles cp ON cp.id = pa.commercial_id
 			LEFT JOIN users cu ON cu.id = cp.user_id
 			WHERE pa.org_id = $1 AND pa.status = $4
-			ORDER BY pa.created_at DESC
+			ORDER BY pa.created_at DESC, pa.id DESC
 			LIMIT $2 OFFSET $3
 		`
 		args = []any{orgID, limit, offset, *status}
@@ -165,7 +165,7 @@ func (r *PartnerApplicationRepository) ListByOrg(ctx context.Context, orgID uuid
 			LEFT JOIN commercial_profiles cp ON cp.id = pa.commercial_id
 			LEFT JOIN users cu ON cu.id = cp.user_id
 			WHERE pa.org_id = $1
-			ORDER BY pa.created_at DESC
+			ORDER BY pa.created_at DESC, pa.id DESC
 			LIMIT $2 OFFSET $3
 		`
 		args = []any{orgID, limit, offset}

@@ -3,6 +3,7 @@ package handler
 import (
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -208,7 +209,16 @@ func (h *CommercialHandler) AdminGetCommercial(w http.ResponseWriter, r *http.Re
 		WriteError(w, r, appErr)
 		return
 	}
-	item, serviceErr := h.svc.AdminGetCommercial(r.Context(), ac, commercialID)
+	query := r.URL.Query()
+	partnersOffset, _ := strconv.Atoi(query.Get("partners_offset"))
+	reportsOffset, _ := strconv.Atoi(query.Get("reports_offset"))
+	commissionsOffset, _ := strconv.Atoi(query.Get("commissions_offset"))
+	item, serviceErr := h.svc.AdminGetCommercial(r.Context(), ac, commercialID, domain.CommercialDetailPagination{
+		Limit:             parseLimit(r, 100, 100),
+		PartnersOffset:    max(0, partnersOffset),
+		ReportsOffset:     max(0, reportsOffset),
+		CommissionsOffset: max(0, commissionsOffset),
+	})
 	if serviceErr != nil {
 		WriteError(w, r, serviceErr)
 		return

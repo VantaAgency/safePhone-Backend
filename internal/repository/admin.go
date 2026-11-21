@@ -230,7 +230,7 @@ func (r *AdminRepository) ListCustomers(ctx context.Context, orgID uuid.UUID, se
 			partner_attr.partner_referral_code,
 			partner_attr.partner_attribution_source,
 			partner_attr.partner_attributed_at
-		ORDER BY u.created_at DESC
+		ORDER BY u.created_at DESC, u.id DESC
 		LIMIT $4 OFFSET $5
 	`, orgID, search, market, limit, offset)
 	if err != nil {
@@ -304,7 +304,7 @@ func (r *AdminRepository) ListPayments(ctx context.Context, orgID uuid.UUID, mar
 		JOIN plans pl ON pl.id = pay.plan_id
 		WHERE pay.org_id = $1
 		  AND ($2 = '' OR pay.market = $2)
-		ORDER BY pay.created_at DESC
+		ORDER BY pay.created_at DESC, pay.id DESC
 		LIMIT $3 OFFSET $4
 	`, orgID, market, limit, offset)
 	if err != nil {
@@ -478,11 +478,11 @@ func (r *AdminRepository) ListEmployees(
 	switch sortKey {
 	case "joined":
 		query += `
-			ORDER BY u.created_at DESC, u.full_name ASC
+			ORDER BY u.created_at DESC, u.full_name ASC, u.id ASC
 		`
 	default:
 		query += `
-			ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC, u.full_name ASC
+			ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC, u.full_name ASC, u.id ASC
 		`
 	}
 
