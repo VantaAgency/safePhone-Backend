@@ -64,3 +64,11 @@ func (r *WebhookEventRepository) CreateIfNew(ctx context.Context, event *domain.
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// Release lets the provider retry an event whose processing failed.
+func (r *WebhookEventRepository) Release(ctx context.Context, idempotencyKey string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `DELETE FROM webhook_events WHERE idempotency_key = $1`, idempotencyKey)
+	return err
+}

@@ -105,6 +105,9 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 			if existing.OrgID != ac.OrgID || existing.UserID != ac.UserID {
 				return nil, domain.Conflict("idempotency key is already in use")
 			}
+			if !isDexpayPayment(existing) {
+				return nil, domain.Conflict("idempotency key belongs to a different market")
+			}
 			return s.buildCheckoutResult(ctx, existing, true)
 		}
 	}
@@ -117,7 +120,7 @@ func (s *PaymentService) Create(ctx context.Context, ac *auth.AuthContext,
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if appErr := validatePlanAvailability(plan, s.devMode); appErr != nil {
+	if appErr := validateDexpayPlan(plan, s.devMode); appErr != nil {
 		return nil, appErr
 	}
 	deviceType = domain.NormalizeDeviceType(string(deviceType))
@@ -318,6 +321,9 @@ func (s *PaymentService) RenewSubscription(
 			if existing.OrgID != ac.OrgID || existing.UserID != ac.UserID {
 				return nil, domain.Conflict("idempotency key is already in use")
 			}
+			if !isDexpayPayment(existing) {
+				return nil, domain.Conflict("idempotency key belongs to a different market")
+			}
 			return s.buildCheckoutResult(ctx, existing, true)
 		}
 	}
@@ -328,6 +334,9 @@ func (s *PaymentService) RenewSubscription(
 	}
 	if sourceSub == nil || sourceSub.OrgID != ac.OrgID || sourceSub.UserID != ac.UserID {
 		return nil, domain.NotFound("subscription")
+	}
+	if sourceSub.Market != "" && sourceSub.Market != domain.MarketSN {
+		return nil, domain.BadRequest("this subscription is billed through Stripe")
 	}
 	if sourceSub.Status != domain.SubscriptionStatusExpired {
 		return nil, domain.BadRequest("subscription can only be renewed after it has expired")
@@ -341,11 +350,15 @@ func (s *PaymentService) RenewSubscription(
 		return nil, domain.NotFound("device")
 	}
 
+	if device.Market != "" && device.Market != domain.MarketSN {
+		return nil, domain.BadRequest("this device is covered by a different market")
+	}
+
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil {
 		return nil, domain.InternalError(err)
 	}
-	if appErr := validatePlanAvailability(plan, s.devMode); appErr != nil {
+	if appErr := validateDexpayPlan(plan, s.devMode); appErr != nil {
 		return nil, appErr
 	}
 
@@ -404,6 +417,9 @@ func (s *PaymentService) GetCheckout(ctx context.Context, ac *auth.AuthContext, 
 	}
 	if payment == nil || payment.OrgID != ac.OrgID || payment.UserID != ac.UserID {
 		return nil, domain.NotFound("payment")
+	}
+	if !isDexpayPayment(payment) {
+		return nil, domain.BadRequest("this checkout is only available for DEXPAY payments")
 	}
 
 	return s.buildCheckoutResult(ctx, payment, true)
@@ -498,6 +514,9 @@ func (s *PaymentService) Resume(ctx context.Context, ac *auth.AuthContext, id uu
 	if payment == nil || payment.OrgID != ac.OrgID || payment.UserID != ac.UserID {
 		return nil, domain.NotFound("payment")
 	}
+	if !isDexpayPayment(payment) {
+		return nil, domain.BadRequest("this checkout is only available for DEXPAY payments")
+	}
 
 	if appErr := s.refreshPaymentState(ctx, payment, true); appErr != nil {
 		return nil, appErr
@@ -509,7 +528,7 @@ func (s *PaymentService) Resume(ctx context.Context, ac *auth.AuthContext, id uu
 	}
 	for i := range attempts {
 		candidate := &attempts[i]
-		if candidate.OrgID != ac.OrgID || candidate.UserID != ac.UserID {
+		if candidate.OrgID != ac.OrgID || candidate.UserID != ac.UserID || !isDexpayPayment(candidate) {
 			continue
 		}
 		if candidate.ID != payment.ID {
@@ -558,6 +577,13 @@ func (s *PaymentService) Resume(ctx context.Context, ac *auth.AuthContext, id uu
 	}
 	if plan == nil {
 		return nil, domain.NotFound("plan")
+	}
+
+	if appErr := validateDexpayPlan(plan, s.devMode); appErr != nil {
+		return nil, appErr
+	}
+	if s.dexpayClient == nil {
+		return nil, domain.ServiceUnavailable("DEXPAY payments are not configured")
 	}
 
 	attempt, err := s.createPaymentAttempt(ctx, ac, sub, payment.AmountMinor, nil)
@@ -614,15 +640,15 @@ func (s *PaymentService) buildCheckoutSessionRequest(
 		Currency:   payment.Currency,
 		CountryISO: dexpayCountrySN,
 		WebhookURL: s.buildCheckoutWebhookURL(),
-		SuccessURL: buildFrontendCallbackURL(s.frontendURL, "/paiement/succes", payment),
-		FailureURL: buildFrontendCallbackURL(s.frontendURL, "/paiement/echec", payment),
+		SuccessURL: buildFrontendCallbackURL(s.frontendURL, "/sn/paiement/succes", payment),
+		FailureURL: buildFrontendCallbackURL(s.frontendURL, "/sn/paiement/echec", payment),
 		Customer:   buildCheckoutCustomer(user),
 	}
 }
 
 func (s *PaymentService) buildCheckoutWebhookURL() string {
 	baseURL := s.backendPublicURL
-	if s.devMode || baseURL == "" {
+	if baseURL == "" {
 		baseURL = s.frontendURL
 	}
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/api/v1/webhooks/dexpay"
@@ -654,6 +680,23 @@ func buildCheckoutItemName(plan *domain.Plan, billingCycle string) string {
 		return fmt.Sprintf("SafePhone %s (annual)", name)
 	}
 	return fmt.Sprintf("SafePhone %s (monthly)", name)
+}
+
+func validateDexpayPlan(plan *domain.Plan, devMode bool) *domain.AppError {
+	if appErr := validatePlanAvailability(plan, devMode); appErr != nil {
+		return appErr
+	}
+	if (plan.Market != "" && plan.Market != domain.MarketSN) ||
+		(plan.Currency != "" && plan.Currency != domain.CurrencyXOF) {
+		return domain.BadRequest("DEXPAY requires a Senegal plan in XOF")
+	}
+	return nil
+}
+
+func isDexpayPayment(payment *domain.Payment) bool {
+	return payment.Provider == dexpayProviderName &&
+		(payment.Market == "" || payment.Market == domain.MarketSN) &&
+		(payment.Currency == "" || payment.Currency == dexpayCurrencyXOF)
 }
 
 func planAmountForBillingCycle(plan *domain.Plan, billingCycle string) int {
@@ -1118,7 +1161,7 @@ func (s *PaymentService) refreshPaymentState(ctx context.Context, payment *domai
 		return nil
 	}
 
-	shouldFetchProvider := payment.Status == domain.PaymentStatusPending &&
+	shouldFetchProvider := isDexpayPayment(payment) && payment.Status == domain.PaymentStatusPending &&
 		s.dexpayClient != nil &&
 		payment.ProviderRef != nil &&
 		(syncWithProvider || payment.PaymentURL == nil)
